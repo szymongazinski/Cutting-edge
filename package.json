@@ -1,7 +1,7 @@
 {
   "name": "cutting-edge-editor",
   "productName": "Cutting edge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "A bilingual, local-first multitrack video editor for Windows",
   "author": "szymongazinski",

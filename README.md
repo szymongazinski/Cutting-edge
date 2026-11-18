@@ -13,7 +13,7 @@ Uruchom instalator, wybierz język, folder projektów i folder gotowych filmów.
 Możesz zainstalować lub zaktualizować aplikację z PowerShella. Skrypt pobierze bieżące stabilne wydanie, sprawdzi SHA-256 i uruchomi instalator.
 
 ~~~powershell
-& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.1/scripts/install.ps1'))) -Language pl
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.2/scripts/install.ps1'))) -Language pl
 ~~~
 
 Dodaj parametr `-Interactive`, aby otworzyć kreator. Parametry `-ProjectDir` i `-OutputDir` pozwalają podać własne katalogi. W zainstalowanej aplikacji użyj **Opcje → Sprawdź aktualizacje**. Kolejne wydania zastępują program w dotychczasowej lokalizacji.

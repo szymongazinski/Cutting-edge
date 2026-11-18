@@ -9,7 +9,7 @@ A Windows x64 multitrack video editor with English and Polish interfaces, local 
 Choose your language, project folder and export folder during setup. The defaults are Documents → Cutting edge → Projects and Videos → Cutting edge. Launch **Cutting edge** from Windows Start. To install the latest stable release from PowerShell, run the following command.
 
 ~~~powershell
-& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.1/scripts/install.ps1'))) -Language en
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.2/scripts/install.ps1'))) -Language en
 ~~~
 
 Add `-Interactive` for the setup wizard, or use `-ProjectDir` and `-OutputDir` to supply the paths. Use **Settings → Check for updates** for subsequent versions.

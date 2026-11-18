@@ -93,6 +93,13 @@ const root = path.resolve(__dirname, '..');
       'Straight Arrow Thin', 'Straight Arrow Bold', 'Curved Arrow Thin', 'Curved Arrow Bold',
       'Clean Circle', 'Sketched Circle', 'Double Circle', 'Single Underline', 'Double Underline',
     ]);
+    await page.waitForFunction(() => [...document.querySelectorAll('.asset-thumb.fx img')].every((img) => img.naturalWidth > 0));
+    const clipped = await page.locator('.asset-thumb.fx').evaluateAll((tiles) => tiles.filter((tile) => {
+      const thumb = tile.getBoundingClientRect();
+      const img = tile.querySelector('img').getBoundingClientRect();
+      return img.bottom > thumb.bottom + 1 || img.right > thumb.right + 1;
+    }).map((tile) => tile.parentElement.ariaLabel));
+    assert.deepEqual(clipped, []);
     const variant = page.locator('.asset .variant').first();
     const ids = await variant.locator('option').evaluateAll((o) => o.map((v) => v.value));
     assert.equal(ids.length, 6);

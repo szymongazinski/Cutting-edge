@@ -541,6 +541,8 @@ small {
   object-fit: cover;
 }
 .asset-thumb.fx > img {
+  position: absolute;
+  inset: 0;
   object-fit: contain;
 }
 .asset-thumb audio {
