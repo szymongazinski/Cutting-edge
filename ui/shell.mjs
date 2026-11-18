@@ -19,6 +19,7 @@ import {
   jumpOut,
 } from './session.mjs';
 import { mountEditor } from './editor.mjs';
+import { editSourceCrop } from './geometry-form.mjs';
 import { splitClip } from './model.mjs';
 import { drawLibrary, drawRail, reloadLibrary } from './library-ui.mjs';
 import { drawInspector } from './inspector.mjs';
@@ -392,11 +393,13 @@ async function boot() {
     flags: () => ({
       timelineSnap: state.settings.timelineSnap,
       sceneSnap: state.settings.sceneSnap,
+      edgeDragMode: state.settings.edgeDragMode,
       language: state.settings.language,
     }),
     translate: t,
     assetUrl: mediaUrl,
     dropAsset: addAsset,
+    cropSource: run(editSourceCrop),
     inspect: (id) => {
       const c = project().clips.find((c) => c.id === id);
       if (!c) return;

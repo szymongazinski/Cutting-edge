@@ -1,13 +1,19 @@
 import { el, fields, field, number, input, modal, formAction, mediaUrl } from './dom.mjs';
-import { t, project } from './session.mjs';
+import { t, project, changeClip } from './session.mjs';
 import { coverCrop } from './layout.mjs';
+import { fullBox, visualSource } from './model.mjs';
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 export function boxFields(box, changed = () => {}) {
+  const initial = box || fullBox();
   const inputs = {};
   const labels = { x: 'X %', y: 'Y %', w: t('Szerokość %', 'Width %'), h: t('Wysokość %', 'Height %') };
   const controls = fields(
     ...Object.keys(labels).map((k) => {
-      const n = number(box[k] * 100, { min: ['w', 'h'].includes(k) ? 0.1 : 0, max: 100, step: 'any' });
+      const n = number(initial[k] * 100, {
+        min: ['w', 'h'].includes(k) ? 0.1 : 0,
+        max: 100,
+        step: 'any',
+      });
       inputs[k] = n;
       return field(labels[k], n);
     }),
@@ -64,6 +70,16 @@ export function placement(initial, ratio = project().width / project().height) {
     value: f.value,
   };
 }
+export async function editSourceCrop(id) {
+  const p = project();
+  const clip = p.clips.find((c) => c.id === id);
+  const asset = visualSource(p, clip);
+  if (!asset) return;
+  const initial = clip.crop || fullBox();
+  const crop = await cropDialog(asset, clip.box || fullBox(), initial);
+  if (crop && crop !== initial) changeClip(id, { crop });
+}
+
 export function cropDialog(asset, box, initial = null) {
   return new Promise((resolve) => {
     let settled = false;
@@ -74,10 +90,13 @@ export function cropDialog(asset, box, initial = null) {
     });
     const p = project(),
       targetRatio = (box.w * p.width) / (box.h * p.height);
-    const fit = coverCrop(asset.width || p.width, asset.height || p.height, targetRatio, 1);
-    let zoom = initial ? clamp(fit.w / initial.w, 1, 8) : 1;
-    let fx = initial && initial.w < 1 ? clamp(initial.x / (1 - initial.w), 0, 1) : 0.5;
-    let fy = initial && initial.h < 1 ? clamp(initial.y / (1 - initial.h), 0, 1) : 0.5;
+    let crop = initial || coverCrop(asset.width || p.width, asset.height || p.height, targetRatio, 1);
+    // A stretched frame can have a different aspect ratio from its source crop.
+    const longest = Math.max(crop.w, crop.h);
+    const fit = { w: crop.w / longest, h: crop.h / longest };
+    let zoom = 1 / longest;
+    let fx = crop.w < 1 ? clamp(crop.x / (1 - crop.w), 0, 1) : 0.5;
+    let fy = crop.h < 1 ? clamp(crop.y / (1 - crop.h), 0, 1) : 0.5;
     const preview = el('img', {
       src: mediaUrl(asset.thumbnail || asset.previewPath || asset.path),
       alt: asset.name,
@@ -94,46 +113,50 @@ export function cropDialog(asset, box, initial = null) {
       },
       preview,
     );
-    const slider = input('range', zoom, { min: 1, max: 8, step: 0.01 });
+    const slider = input('range', zoom, { min: 1, max: Math.max(8, Math.ceil(zoom)), step: 0.01 });
     const controlX = input('range', fx, { min: 0, max: 1, step: 0.001 }),
       controlY = input('range', fy, { min: 0, max: 1, step: 0.001 });
-    function crop() {
+    function update() {
       const w = fit.w / zoom,
         h = fit.h / zoom;
-      return { x: fx * (1 - w), y: fy * (1 - h), w, h };
+      crop = { x: fx * (1 - w), y: fy * (1 - h), w, h };
+      paint();
     }
     function paint() {
-      const c = crop();
       Object.assign(preview.style, {
-        width: 100 / c.w + '%',
-        height: 100 / c.h + '%',
-        left: (-100 * c.x) / c.w + '%',
-        top: (-100 * c.y) / c.h + '%',
+        width: 100 / crop.w + '%',
+        height: 100 / crop.h + '%',
+        left: (-100 * crop.x) / crop.w + '%',
+        top: (-100 * crop.y) / crop.h + '%',
       });
+      slider.value = zoom;
       controlX.value = fx;
       controlY.value = fy;
     }
-    [slider, controlX, controlY].forEach(
-      (n) =>
-        (n.oninput = () => {
-          zoom = +slider.value;
-          fx = +controlX.value;
-          fy = +controlY.value;
-          paint();
-        }),
-    );
+    slider.oninput = () => {
+      zoom = +slider.value;
+      update();
+    };
+    controlX.oninput = () => {
+      fx = +controlX.value;
+      update();
+    };
+    controlY.oninput = () => {
+      fy = +controlY.value;
+      update();
+    };
     frame.onpointerdown = (e) => {
       frame.setPointerCapture(e.pointerId);
       const x = e.clientX,
         y = e.clientY,
         a = fx,
         b = fy,
-        c = crop(),
+        c = crop,
         r = frame.getBoundingClientRect();
       frame.onpointermove = (ev) => {
         fx = clamp(a - (((ev.clientX - x) / r.width) * c.w) / Math.max(0.0001, 1 - c.w), 0, 1);
         fy = clamp(b - (((ev.clientY - y) / r.height) * c.h) / Math.max(0.0001, 1 - c.h), 0, 1);
-        paint();
+        update();
       };
       frame.onlostpointercapture = () => {
         frame.onpointermove = null;
@@ -151,7 +174,7 @@ export function cropDialog(asset, box, initial = null) {
       t('Zastosuj kadr', 'Apply crop'),
       () => {
         settled = true;
-        resolve(crop());
+        resolve(crop);
       },
       t('Anuluj', 'Cancel'),
     );

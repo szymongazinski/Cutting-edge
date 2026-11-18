@@ -5,6 +5,7 @@ const { createHash, randomUUID } = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { constants } = require('node:fs');
 const { filename, readJson, writeJson, categories } = require('./workspace.cjs');
+const { archiveRetiredStickers, findArchivedSticker, replacementId } = require('./retired-stickers.cjs');
 const mediaExt = new Set(
   'mp4 mov mkv webm avi m4v mts m2ts ts mxf wmv flv mpg mpeg 3gp ogv gif apng png jpg jpeg webp bmp tif tiff avif mp3 wav m4a aac flac ogg opus aif aiff wma m4v'.split(
     ' ',
@@ -28,9 +29,15 @@ function ff(exe, args, onData) {
     child.on('close', (code) => (code === 0 ? resolve() : reject(Error(err || 'Media preview failed'))));
   });
 }
-function needsProxy(m, file) {
+function needsProxy(m, file, size) {
   if (m.kind === 'image') return !['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif'].includes(ext(file));
   if (m.kind === 'audio') return !['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus'].includes(ext(file));
+  // The preview's ImageDecoder preserves GIF frame delays and transparent pixels.
+  // Larger animations use a streaming proxy to bound the renderer's memory use.
+  if (
+    ext(file) === 'gif' && m.videoCodec === 'gif' && size <= 8 * 1024 * 1024 &&
+    m.width <= 1024 && m.height <= 1024 && m.duration <= 30
+  ) return false;
   return !(
     ['mp4', 'm4v', 'webm', 'mov'].includes(ext(file)) &&
     ['h264', 'vp8', 'vp9', 'av1'].includes(m.videoCodec) &&
@@ -57,6 +64,7 @@ class Library {
     } catch (e) {
       if (e.code !== 'ENOENT') throw e;
     }
+    await archiveRetiredStickers(this.ws);
   }
   folder(category, group) {
     if (!categories.includes(category)) throw Error('Unknown library');
@@ -67,20 +75,22 @@ class Library {
     file = path.resolve(file);
     if (!isMedia(file)) throw Error('Unsupported media / Nieobsługiwane media: ' + path.basename(file));
     const stat = await fs.stat(file);
-    const key = idFor(file.toLowerCase() + '|' + stat.size + '|' + stat.mtimeMs + '|5');
+    const revision = ext(file) === 'gif' ? 6 : 5;
+    const key = idFor(file.toLowerCase() + '|' + stat.size + '|' + stat.mtimeMs + '|' + revision);
     let promise = this.pending.get(key);
     if (!promise) {
-      promise = this.describe(file, key).finally(() => this.pending.delete(key));
+      promise = this.describe(file, key, stat.size).finally(() => this.pending.delete(key));
       this.pending.set(key, promise);
     }
-    const meta = await promise;
+    const [meta, archive] = await Promise.all([promise, findArchivedSticker(file, this.ws)]);
     const asset = {
       ...meta,
-      id: idFor(category + '|' + file.toLowerCase()),
+      id: archive ? replacementId(category, file) : idFor(category + '|' + file.toLowerCase()),
       path: file,
       name: path.basename(file),
       category,
     };
+    if (archive) asset.reusedStickerPath = true;
     if (category === 'sticker') {
       asset.group = group || path.basename(file, path.extname(file));
       asset.variant = path.basename(file, path.extname(file));
@@ -88,7 +98,7 @@ class Library {
     this.allow(asset);
     return asset;
   }
-  async describe(file, key) {
+  async describe(file, key, size) {
     const base = path.join(this.cacheDir, key);
     const cached = await readJson(base + '.json', null);
     if (cached) {
@@ -105,7 +115,7 @@ class Library {
     }
     const meta = await this.engine.probeAsset(file);
     const { ffmpeg } = await this.engine.getBinaries();
-    if (needsProxy(meta, file)) {
+    if (needsProxy(meta, file, size)) {
       const alpha =
         ['gif', 'apng', 'qtrle', 'prores', 'png', 'vp9', 'webp'].includes(meta.videoCodec) ||
         ['gif', 'apng'].includes(ext(file));

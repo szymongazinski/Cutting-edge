@@ -36,15 +36,11 @@ export function createPreview(container, api) {
   const emptyText = element('span', 'ce-empty-text', empty);
   const warning = element('div', 'ce-stage-warning', container);
   warning.setAttribute('role', 'status');
-  const cropButton = button(frame, 'ce-stage-crop ce-icon-btn', '', () => {
-    cropMode = !cropMode;
-    render();
-  });
+  const cropButton = button(frame, 'ce-stage-crop ce-icon-btn', '', () => api.cropSource?.(singleSource));
   icon('crop', cropButton);
   const cache = new Map(),
     selections = new Map();
-  let cropMode = false,
-    priorSingle = null,
+  let singleSource = null,
     drag = null,
     renderIndex = 0;
   let audioContext,
@@ -328,9 +324,11 @@ export function createPreview(container, api) {
   function paintSelection(nodes, p) {
     const selected = new Set(api.selection());
     const active = new Set();
+    singleSource = null;
     for (const { clip } of nodes) {
       if (!selected.has(clip.id) || !isVisual(p, clip)) continue;
       active.add(clip.id);
+      if (selected.size === 1 && clip.kind === 'media') singleSource = clip.id;
       let node = selections.get(clip.id);
       if (!node) {
         node = element('div', 'ce-stage-selection', overlay);
@@ -342,25 +340,15 @@ export function createPreview(container, api) {
         selections.set(clip.id, node);
       }
       setBox(node, clip.box || fullBox());
-      node.classList.toggle('ce-is-cropping', cropMode && selected.size === 1);
+      node.classList.toggle('ce-is-cropping', Boolean(drag?.cropping && drag.moving[0].id === clip.id));
     }
     for (const [id, n] of selections)
       if (!active.has(id)) {
         n.remove();
         selections.delete(id);
       }
-    const single = active.size === 1 ? [...active][0] : null;
-    if (single !== priorSingle) {
-      cropMode = false;
-      priorSingle = single;
-    }
-    cropButton.hidden = !single;
-    cropButton.classList.toggle('ce-active', cropMode);
-    cropButton.setAttribute('aria-pressed', String(cropMode));
-    label(
-      cropButton,
-      api.t('Kadruj uchwytami (Alt podczas przeciągania)', 'Crop with handles (Alt while dragging)'),
-    );
+    cropButton.hidden = !singleSource || !api.cropSource;
+    label(cropButton, api.t('Kadruj źródło', 'Crop source'));
     guideX.hidden = !Number.isFinite(pendingGuides.x);
     guideY.hidden = !Number.isFinite(pendingGuides.y);
     if (!guideX.hidden) guideX.style.left = pendingGuides.x * 100 + '%';
@@ -420,7 +408,6 @@ export function createPreview(container, api) {
       y: e.clientY,
       rect,
       edge,
-      crop: Boolean(edge && (e.altKey || cropMode)),
       moving,
       others: active.filter((c) => !ids.has(c.id)).map((c) => c.box || fullBox()),
       group: bounds(moving.map((c) => c.box || fullBox())),
@@ -430,14 +417,15 @@ export function createPreview(container, api) {
     e.preventDefault();
   }
 
-  function dragMove(e) {
+  function dragMove(e, ctrlKey = e.ctrlKey) {
     if (!drag || drag.id !== e.pointerId) return;
     if (!drag.patches && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) return;
     let dx = (e.clientX - drag.x) / drag.rect.width,
       dy = (e.clientY - drag.y) / drag.rect.height;
     const tx = 7 / drag.rect.width,
       ty = 7 / drag.rect.height;
-    const magnet = api.flags().sceneSnap !== false;
+    const flags = api.flags();
+    const magnet = flags.sceneSnap !== false;
     const patches = new Map();
     pendingGuides = {};
     if (!drag.edge) {
@@ -463,9 +451,13 @@ export function createPreview(container, api) {
       const sy = snapTime([b.y + (top ? 0 : b.h) + dy], anchors.y, ty, magnet && (top || bottom));
       dx += sx.delta;
       dy += sy.delta;
-      const patch = drag.crop
+      if (edge.length === 1 && (c.kind === 'media' || c.kind === 'compound')) {
+        drag.lastPointer = e;
+        drag.cropping = flags.edgeDragMode === 'stretch' ? ctrlKey : !ctrlKey;
+      }
+      const patch = drag.cropping
         ? cropEdge({ box: b, crop: c.crop || fullBox() }, edge, dx, dy)
-        : { box: resizeBox(b, edge, dx, dy, !e.shiftKey) };
+        : { box: resizeBox(b, edge, dx, dy, true) };
       patches.set(c.id, patch);
       if (sx.guide !== null && Math.abs(patch.box.x + (left ? 0 : patch.box.w) - sx.guide) < 0.0001)
         pendingGuides.x = sx.guide;
@@ -478,6 +470,7 @@ export function createPreview(container, api) {
 
   function endDrag(e, cancel = false) {
     if (!drag || drag.id !== e.pointerId) return;
+    if (!cancel && drag.lastPointer) dragMove(e);
     const patches = drag.patches;
     drag = null;
     pendingGuides = {};
@@ -491,6 +484,11 @@ export function createPreview(container, api) {
   listen(container, 'pointerup', (e) => endDrag(e));
   listen(container, 'pointercancel', (e) => endDrag(e, true));
   listen(container, 'lostpointercapture', (e) => endDrag(e, true));
+  function updateControl(e) {
+    if (e.key === 'Control' && !e.repeat && drag?.lastPointer) dragMove(drag.lastPointer, e.ctrlKey);
+  }
+  listen(window, 'keydown', updateControl);
+  listen(window, 'keyup', updateControl);
   listen(container, 'dblclick', (e) => {
     const id = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-top-id]')?.dataset.topId;
     if (id) api.inspect(id);
@@ -527,7 +525,6 @@ export function createPreview(container, api) {
     },
     reset() {
       for (const r of [...cache.values()]) dispose(r);
-      cropMode = false;
       upcoming = [];
       lastPlanTime = NaN;
     },

@@ -220,6 +220,13 @@ export function settings() {
         ['light', t('Jasny', 'Light')],
       ],
       s.theme,
+    ),
+    edgeDragMode = select(
+      [
+        ['crop', t('Kadruj (Ctrl rozciąga)', 'Crop (Ctrl stretches)')],
+        ['stretch', t('Rozciągaj (Ctrl kadruje)', 'Stretch (Ctrl crops)')],
+      ],
+      s.edgeDragMode || 'crop',
     );
   const dir = (name, value) => {
     const n = input('text', value, { required: true });
@@ -283,6 +290,7 @@ export function settings() {
   );
   m.body.append(
     fields(field(t('Język', 'Language'), lang), field(t('Motyw', 'Appearance'), theme)),
+    field(t('Uchwyty krawędzi źródła', 'Source edge handles'), edgeDragMode),
     projectDir.ui,
     outputDir.ui,
     el('h3', {}, t('Domyślne ustawienia nowych projektów', 'Defaults for new projects')),
@@ -297,6 +305,7 @@ export function settings() {
       await prefs({
         language: lang.value,
         theme: theme.value,
+        edgeDragMode: edgeDragMode.value,
         projectDir: projectDir.n.value,
         outputDir: outputDir.n.value,
         defaultWidth: a.width,
@@ -317,6 +326,10 @@ export function shortcuts() {
     [t('Powiększ oś czasu', 'Zoom timeline'), 'Ctrl + ' + t('kółko', 'wheel')],
     [t('Przełącz magnes na osi', 'Toggle timeline snapping'), 'M'],
     [t('Przełącz magnes sceny', 'Toggle scene snapping'), 'G'],
+    [
+      t('Przeciągaj krawędź źródła w drugim trybie', 'Use the alternate edge drag mode'),
+      t('Przytrzymaj Ctrl', 'Hold Ctrl'),
+    ],
     [t('Podziel klip', 'Split clip'), 'S'],
     [t('Zaznacz kilka klipów', 'Select multiple clips'), 'Ctrl / Shift + click'],
     [t('Usuń zaznaczenie z osi', 'Delete selection'), 'Delete'],

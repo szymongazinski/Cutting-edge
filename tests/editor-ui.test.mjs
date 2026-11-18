@@ -23,7 +23,7 @@ const skipped = browserPath
   : 'Install a Chromium browser or set CE_BROWSER for native interaction tests.';
 const html = `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/ui/editor.css">
 <style>*{box-sizing:border-box}body{margin:0;background:#20252a;color:white;font:14px Arial}#stage{width:640px;height:330px}#timeline{width:760px;height:220px}#transport{width:760px;height:45px}</style>
-<section id="stage"></section><div id="transport"></div><section id="timeline"></section>
+<div id="app"><section id="stage"></section><div id="transport"></div><section id="timeline"></section><div id="inspector-tabs"></div><div id="properties"></div></div><div id="overlays"></div>
 <script type="module">
 import {mountEditor} from '/ui/editor.mjs';
 import {makeClip} from '/ui/model.mjs';
@@ -35,7 +35,7 @@ const p={id:'p',width:640,height:320,fps:25,assets:{picture:image},clips:[]};
 const a=makeClip(p,image,0,0), b=makeClip(p,image,6,1);
 a.id='a'; a.box={x:.1,y:.1,w:.5,h:.5}; b.id='b'; p.clips.push(a,b);
 let selected=[]; window.actions=[]; window.state=p; window.settings={timelineSnap:true,sceneSnap:true,language:'en'};
-const edit=mountEditor({stage:stage,timeline:timeline,transport:transport,getProject:()=>p,getSelection:()=>selected,select:ids=>{selected=ids;edit.refresh()},commit:fn=>{fn(p);window.actions.push('edit');edit.refresh()},onTime:t=>window.at=t,flags:()=>window.settings,translate:(pl,en)=>en,assetUrl:p=>p,dropAsset:(...args)=>window.dropped=args,inspect:id=>window.inspected=id});
+const edit=mountEditor({stage:stage,timeline:timeline,transport:transport,getProject:()=>p,getSelection:()=>selected,select:ids=>{selected=ids;edit.refresh()},commit:fn=>{fn(p);window.actions.push('edit');edit.refresh()},onTime:t=>window.at=t,flags:()=>window.settings,translate:(pl,en)=>en,assetUrl:p=>p,dropAsset:(...args)=>window.dropped=args,inspect:id=>window.inspected=id,cropSource:async id=>(await import('/ui/geometry-form.mjs')).editSourceCrop(id)});
 window.editor=edit; window.selected=()=>selected;window.ready=true;
 </script>`;
 const base = new URL('../', import.meta.url);
@@ -103,6 +103,190 @@ async function withEditor(run) {
 }
 
 const uiTest = (name, fn) => test(name, { skip: skipped, timeout: 30000 }, () => withEditor(fn));
+
+async function grabHandle(page, handle) {
+  const grip = await page.locator('.ce-stage-selection [data-handle="' + handle + '"]').boundingBox();
+  const x = grip.x + grip.width / 2,
+    y = grip.y + grip.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  return { x, y };
+}
+
+uiTest(
+  'all four preview edges crop without moving or scaling the remaining source pixels',
+  async (page) => {
+    await page.locator('.ce-clip[data-clip-id=a]').click({ position: { x: 25, y: 10 } });
+    await page.evaluate(() => {
+      settings.sceneSnap = false;
+    });
+    const media = page.locator('.ce-stage-media');
+    const original = await media.boundingBox();
+    for (const [edge, dx, dy] of [
+      ['w', 32, 0],
+      ['e', -35, 0],
+      ['n', 0, 25],
+      ['s', 0, -21],
+    ]) {
+      const before = await page.evaluate(() => state.clips[0].crop);
+      const start = await grabHandle(page, edge);
+      await page.mouse.move(start.x + dx, start.y + dy);
+      await page.mouse.up();
+      const after = await page.evaluate(() => state.clips[0].crop);
+      assert.ok(dx ? after.w < before.w : after.h < before.h, edge + ' should remove source pixels');
+      assert.equal(dx ? after.h : after.w, dx ? before.h : before.w);
+      const rect = await media.boundingBox();
+      for (const k of ['x', 'y', 'width', 'height'])
+        assert.ok(Math.abs(rect[k] - original[k]) < 0.1, edge + ' shifted the source ' + k);
+    }
+  },
+);
+
+uiTest('Control swaps cropping and stretching mid-drag in either edge preference', async (page) => {
+  await page.locator('.ce-clip[data-clip-id=a]').click({ position: { x: 25, y: 10 } });
+  const media = page.locator('.ce-stage-media');
+  for (const mode of ['crop', 'stretch']) {
+    await page.evaluate((mode) => {
+      settings.sceneSnap = false;
+      settings.edgeDragMode = mode;
+      editor.refresh();
+    }, mode);
+    const original = await media.boundingBox();
+    const before = await page.evaluate(() => state.clips[0].crop);
+    const start = await grabHandle(page, 'w');
+    await page.mouse.move(start.x + 32, start.y);
+    async function checkPreview(cropping) {
+      const current = await media.boundingBox();
+      if (cropping)
+        assert.ok(Math.abs(current.width - original.width) < 0.1, 'crop keeps the source scale');
+      else assert.ok(current.width < original.width - 20, 'stretch changes the source scale');
+    }
+    await checkPreview(mode === 'crop');
+    await page.keyboard.down('Control');
+    await checkPreview(mode === 'stretch');
+    await page.keyboard.up('Control');
+    await checkPreview(mode === 'crop');
+    await page.keyboard.down('Control');
+    await page.mouse.up();
+    await page.keyboard.up('Control');
+    const after = await page.evaluate(() => state.clips[0].crop);
+    if (mode === 'crop') assert.deepEqual(after, before);
+    else assert.ok(after.w < before.w && after.x > before.x);
+  }
+  assert.equal(await page.evaluate(() => actions.length), 2);
+});
+
+uiTest(
+  'corner handles scale proportionally and anchor the opposite corner with modifiers',
+  async (page) => {
+    await page.locator('.ce-clip[data-clip-id=a]').click({ position: { x: 25, y: 10 } });
+    const crop = await page.evaluate(() => state.clips[0].crop);
+    for (const [edge, keys] of [
+      ['nw', ['Control', 'Shift']],
+      ['ne', ['Alt']],
+      ['se', ['Shift']],
+      ['sw', ['Control']],
+    ]) {
+      const before = await page.evaluate(() => state.clips[0].box);
+      for (const k of keys) await page.keyboard.down(k);
+      const start = await grabHandle(page, edge);
+      await page.mouse.move(start.x + (edge.endsWith('w') ? 25 : -25), start.y);
+      await page.mouse.up();
+      for (const k of keys) await page.keyboard.up(k);
+      const after = await page.evaluate(() => state.clips[0].box);
+      assert.ok(after.w < before.w && after.h < before.h, edge + ' must scale both dimensions');
+      assert.ok(Math.abs(after.w / after.h - before.w / before.h) < 1e-6);
+      const farX = (b) => (edge.endsWith('w') ? b.x + b.w : b.x);
+      const farY = (b) => (edge.startsWith('n') ? b.y + b.h : b.y);
+      assert.ok(Math.abs(farX(after) - farX(before)) < 1e-6);
+      assert.ok(Math.abs(farY(after) - farY(before)) < 1e-6);
+      assert.deepEqual(await page.evaluate(() => state.clips[0].crop), crop);
+    }
+  },
+);
+
+async function connectCropDialog(page) {
+  await page.evaluate(async () => {
+    const { state: session } = await import('/ui/session.mjs');
+    session.doc = { project: state };
+    session.settings = settings;
+    window.cutting = { call: async () => {} };
+  });
+}
+
+uiTest('applying the crop dialog after stretching an edge preserves the existing frame', async (page) => {
+  await connectCropDialog(page);
+  await page.locator('.ce-clip[data-clip-id=a]').click({ position: { x: 25, y: 10 } });
+  await page.evaluate(() => {
+    settings.sceneSnap = false;
+  });
+  for (const [edge, dx, dy, stretch] of [
+    ['n', 0, 24, false],
+    ['w', 24, 0, false],
+    ['e', -48, 0, true],
+  ]) {
+    if (stretch) await page.keyboard.down('Control');
+    const start = await grabHandle(page, edge);
+    await page.mouse.move(start.x + dx, start.y + dy);
+    await page.mouse.up();
+    if (stretch) await page.keyboard.up('Control');
+  }
+  const before = await page.evaluate(() => state.clips[0]);
+  await page.locator('.ce-stage-crop').click();
+  const dialog = page.getByRole('dialog', { name: 'Crop source' });
+  const width = await dialog
+    .locator('.crop-frame > img')
+    .evaluate((image) => parseFloat(image.style.width));
+  assert.ok(Math.abs(width - 100 / before.crop.w) < 0.001, 'dialog must open on the visible source region');
+  await dialog.getByRole('button', { name: 'Apply crop' }).click();
+  assert.deepEqual(await page.evaluate(() => state.clips[0]), before);
+});
+
+uiTest(
+  'preview and timeline context menus open the inspector crop dialog for the clicked source',
+  async (page) => {
+    await connectCropDialog(page);
+    const menu = page.locator('.ce-edit-menu:visible');
+    const crop = menu.getByRole('button', { name: 'Crop source', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Crop source' });
+    const timeline = page.locator('.ce-clip[data-clip-id=b]');
+    await timeline.click({ button: 'right', position: { x: 25, y: 10 } });
+    assert.equal(await crop.count(), 1, 'timeline menu should offer source cropping');
+    await crop.click();
+    await dialog.getByRole('slider', { name: 'Zoom' }).fill('2');
+    await dialog.getByRole('button', { name: 'Apply crop' }).click();
+    assert.equal(await page.evaluate(() => state.clips[1].crop.w), 0.5);
+    await page.locator('.ce-layer[data-top-id=a]').click({ button: 'right' });
+    assert.equal(await crop.count(), 1, 'preview menu should offer source cropping');
+    await crop.click();
+    assert.equal(await dialog.getByRole('slider', { name: 'Zoom' }).inputValue(), '1');
+    await dialog.getByRole('slider', { name: 'Zoom' }).fill('4');
+    await dialog.getByRole('button', { name: 'Apply crop' }).click();
+    assert.deepEqual(await page.evaluate(() => state.clips.map((c) => c.crop.w)), [0.25, 0.5]);
+    await page.evaluate(async () => {
+      const { state: session } = await import('/ui/session.mjs');
+      session.selection = ['a'];
+      delete state.clips[0].box; // Older projects can omit the full-frame default.
+      (await import('/ui/inspector.mjs')).drawInspector();
+    });
+    await page.locator('#properties').getByRole('button', { name: 'Crop source', exact: true }).click();
+    assert.equal(await dialog.getByRole('slider', { name: 'Zoom' }).inputValue(), '4');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.evaluate(() => {
+      state.assets.sound = {
+        id: 'sound',
+        kind: 'audio',
+        name: 'Sound',
+        duration: 4,
+        path: '/assets/sample/Alpine-wind.wav',
+      };
+      state.clips[1].assetId = 'sound';
+      editor.refresh();
+    });
+    await timeline.click({ button: 'right', position: { x: 25, y: 10 } });
+    assert.equal(await crop.count(), 0, 'audio has no source image to crop');
+  },
+);
 
 uiTest(
   'pointer gestures, anchored wheel zoom, playback and translated native timeline work together',

@@ -68,16 +68,46 @@ const root = path.resolve(__dirname, '..');
     );
     const ui = await session('id');
     assert.ok(ui);
+    const footage = page.locator('#timeline .ce-clip[aria-label="Ridgeline.mp4"]');
+    const cropMenu = page.locator('.ce-edit-menu:visible').getByText('Crop source', { exact: true });
+    const cropDialog = page.getByRole('dialog', { name: 'Crop source', exact: true });
+    await footage.click({ button: 'right' });
+    await cropMenu.click();
+    assert.equal(await cropDialog.locator('img').getAttribute('alt'), 'Ridgeline.mp4');
+    await cropDialog.getByLabel('Zoom').press('ArrowRight');
+    await cropDialog.getByRole('button', { name: 'Apply crop' }).click();
+    await page.waitForFunction(() => window.qaSession.project().clips.find((c) => c.name === 'Ridgeline.mp4').crop.w < 1);
+    await page.keyboard.press('Control+z');
+    const frame = page.locator('.ce-stage-frame');
+    const frameRect = await frame.boundingBox();
+    await frame.click({ button: 'right', position: { x: frameRect.width * 0.72, y: frameRect.height * 0.3 } });
+    await cropMenu.click();
+    assert.equal(await cropDialog.locator('img').getAttribute('alt'), 'Ridgeline.mp4');
+    await cropDialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.locator('#properties').getByRole('button', { name: 'Crop source' }).click();
+    await cropDialog.getByRole('button', { name: 'Cancel' }).click();
     await page.getByRole('button', { name: 'Stickers', exact: true }).click();
     await page.locator('.asset .variant').first().waitFor({ timeout: 60000 });
-    const groups = await page.locator('.asset .variant').count();
-    assert.ok(groups >= 2);
+    const labels = await page.locator('.asset-name').allTextContents();
+    assert.deepEqual(labels, [
+      'Straight Arrow Thin', 'Straight Arrow Bold', 'Curved Arrow Thin', 'Curved Arrow Bold',
+      'Clean Circle', 'Sketched Circle', 'Double Circle', 'Single Underline', 'Double Underline',
+    ]);
     const variant = page.locator('.asset .variant').first();
     const ids = await variant.locator('option').evaluateAll((o) => o.map((v) => v.value));
-    assert.ok(ids.length >= 2);
+    assert.equal(ids.length, 6);
     await variant.selectOption(ids[1]);
     await page.locator('.asset.active').dblclick({ position: { x: 22, y: 15 } });
     assert.equal(await clipCount(), 5);
+    const sticker = await page.evaluate(() =>
+      Object.values(window.qaSession.project().assets).find((a) => a.category === 'sticker'),
+    );
+    await page.waitForFunction(() => {
+      const canvas = document.querySelector('#stage canvas.ce-stage-media');
+      if (!canvas) return false;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      return pixels[3] === 0 && pixels.some((value, i) => i % 4 === 3 && value > 220);
+    });
     await page.keyboard.press('Control+z');
     await page.getByRole('button', { name: 'Templates', exact: true }).click();
     await page.getByRole('button', { name: 'Create template', exact: true }).click();
@@ -128,10 +158,30 @@ const root = path.resolve(__dirname, '..');
     assert.equal(meta.streams.find((s) => s.codec_type === 'video').width, 1280);
     assert.ok(Math.abs(+meta.format.duration - 8) < 0.12);
     await page.getByTitle('Settings', { exact: true }).first().click();
+    assert.equal(await page.getByLabel('Source edge handles').inputValue(), 'crop');
+    await page.getByLabel('Source edge handles').selectOption('stretch');
     await page.getByLabel('Language', { exact: true }).selectOption('pl');
     await page.getByLabel('Appearance').selectOption('light');
     await page.getByRole('button', { name: 'Save settings' }).click();
     await page.locator('html[lang=pl][data-theme=light]').waitFor();
+    assert.equal(JSON.parse(await fs.readFile(path.join(profile, 'settings.json'), 'utf8')).edgeDragMode, 'stretch');
+    await page.getByRole('button', { name: 'Naklejki', exact: true }).click();
+    await page.getByLabel('Szukaj w bibliotece', { exact: true }).fill('podkreślenie');
+    await page.waitForFunction(() => document.querySelectorAll('.asset .variant').length === 2);
+    const polishColors = await page.locator('.asset .variant').first().locator('option').allTextContents();
+    assert.ok(polishColors.includes('Biały') && polishColors.includes('Atramentowy'));
+    const customFamily = path.join(profile, 'Library', 'sticker', 'Kółko');
+    await fs.mkdir(customFamily);
+    await fs.copyFile(sticker.path, path.join(customFamily, 'Własny.gif'));
+    await page.getByLabel('Szukaj w bibliotece', { exact: true }).fill('kółko');
+    await page.getByRole('button', { name: 'Odśwież bibliotekę' }).click();
+    await page.waitForFunction(() => document.querySelectorAll('.asset-name').length === 4);
+    const circleNames = await page.locator('.asset-name').allTextContents();
+    assert.equal(new Set(circleNames).size, 4);
+    await page.getByRole('button', { name: 'Dodaj pliki', exact: true }).click();
+    const suggestions = await page.locator('#sticker-groups option').evaluateAll((opts) => opts.map((o) => o.value));
+    assert.ok(suggestions.includes('Kółko') && suggestions.includes('Clean Circle'));
+    await page.getByRole('dialog').getByRole('button', { name: 'Anuluj' }).click();
     await page.keyboard.press('Control+s');
     assert.deepEqual(errors, []);
     const savedFile = await session('path');
@@ -153,6 +203,16 @@ const root = path.resolve(__dirname, '..');
     await page.getByRole('button', { name: 'Anuluj', exact: true }).click();
     await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
     await page.waitForFunction((file) => window.qaSession.state.doc.path === file, savedFile);
+    const legacyPath = path.join(docs, 'cleared-gif-cache.cutproj');
+    const legacyAsset = { ...sticker, previewPath: path.join(profile, 'Previews', 'old-missing.webm') };
+    await fs.writeFile(legacyPath, JSON.stringify({
+      ...saved, id: 'old-cache-test', assets: { [sticker.id]: legacyAsset },
+      clips: [{ ...saved.clips.find((c) => c.kind === 'media'), assetId: sticker.id, start: 0 }],
+    }));
+    await app.evaluate(({ app }, file) => app.emit('second-instance', {}, [file]), legacyPath);
+    await page.waitForFunction((file) => window.qaSession.state.doc.path === file, legacyPath);
+    assert.equal(await page.evaluate((id) => window.qaSession.project().assets[id].previewPath, sticker.id), undefined);
+    await page.locator('#stage canvas.ce-stage-media').waitFor();
     if (screenshots) {
       await page.evaluate(async () => {
         const s = await import('./session.mjs');
@@ -164,7 +224,7 @@ const root = path.resolve(__dirname, '..');
       await page.screenshot({ path: path.join(screenshots, 'editor-pl.png') });
     }
     console.log(
-      'Verified Electron playback, split/undo, snap shortcut, grouped GIF import, templates, text, both layouts, language/theme, autosave and actual H.264 + audio export.',
+      'Verified Electron playback, split/undo, both crop menus and inspector, edge preference, 9 sticker families × 6 colors, Polish search, templates, both layouts, save and H.264 + audio export.',
     );
   } catch (e) {
     console.error('Page:', (await page.locator('body').innerText()).slice(0, 3200));

@@ -1,4 +1,4 @@
-import { endTime, hasSound, loops, splitClip, trimTo } from './model.mjs';
+import { endTime, hasSound, loops, trimTo } from './model.mjs';
 import { anchoredZoom, clamp, snapTime, timecode } from './editor-math.mjs';
 import { assetDragType, button, element, icon, isAssetDrag, label } from './editor-dom.mjs';
 
@@ -44,7 +44,6 @@ export function createTimeline(container, api) {
   const playhead = mark(element('div', 'ce-timeline-head', sheet));
   const magnetLine = mark(element('div', 'ce-timeline-guide', sheet));
   const marquee = mark(element('div', 'ce-timeline-marquee', sheet));
-  const menu = element('div', 'ce-edit-menu', container);
   const events = new AbortController();
   const listen = (node, type, fn, options = {}) =>
     node.addEventListener(type, fn, { ...options, signal: events.signal });
@@ -62,7 +61,7 @@ export function createTimeline(container, api) {
     scrollFrame = 0,
     autoScroll = 0;
   let destroyed = false;
-  magnetLine.hidden = marquee.hidden = menu.hidden = true;
+  magnetLine.hidden = marquee.hidden = true;
 
   const gutter = () => corner.offsetWidth;
   const viewWidth = () => Math.max(20, scroller.clientWidth - gutter());
@@ -402,8 +401,7 @@ export function createTimeline(container, api) {
   }
 
   function begin(e) {
-    if (e.button !== 0 || e.target.closest('button') || menu.contains(e.target)) return;
-    menu.hidden = true;
+    if (e.button !== 0 || e.target.closest('button')) return;
     const row = e.target.closest('[data-lane]');
     const clipId = e.target.closest('.ce-clip')?.dataset.clipId;
     if (e.target.closest('.ce-lane-label')) {
@@ -550,65 +548,6 @@ export function createTimeline(container, api) {
     else api.preview(null, true);
   }
 
-  function context(e) {
-    const id = e.target.closest('.ce-clip')?.dataset.clipId;
-    if (!id) return;
-    e.preventDefault();
-    api.pick(id, false);
-    api.pause();
-    const ids = [...api.selection()],
-      selected = new Set(ids);
-    const p = api.project(),
-      clips = p.clips.filter((c) => selected.has(c.id));
-    menu.replaceChildren();
-    function action(text, glyph, fn, disabled = false) {
-      const b = button(menu, 'ce-menu-action', text, () => {
-        menu.hidden = true;
-        fn();
-      });
-      icon(glyph, b);
-      b.append(document.createTextNode(text));
-      b.disabled = disabled;
-    }
-    action(api.t('Właściwości', 'Properties'), 'sliders-horizontal', () => api.inspect(id));
-    const now = api.time();
-    action(
-      api.t('Podziel przy głowicy', 'Split at playhead'),
-      'scissors',
-      () => {
-        api.commit((p) => {
-          for (const c of ids) splitClip(p, c, now);
-        });
-      },
-      !clips.some((c) => c.start < now && c.start + c.duration > now),
-    );
-    const withSound = clips.filter((c) => hasSound(p, c)),
-      mute = !withSound.every((c) => c.muted);
-    action(
-      mute ? api.t('Wycisz', 'Mute') : api.t('Włącz dźwięk', 'Unmute'),
-      mute ? 'volume-x' : 'volume-2',
-      () =>
-        api.commit((p) =>
-          p.clips
-            .filter((c) => selected.has(c.id) && hasSound(p, c))
-            .forEach((c) => {
-              c.muted = mute;
-            }),
-        ),
-      !withSound.length,
-    );
-    action(api.t('Usuń zaznaczenie', 'Delete selected clips'), 'trash-2', () => {
-      api.commit((p) => {
-        p.clips = p.clips.filter((c) => !selected.has(c.id));
-      });
-      api.select([]);
-    });
-    menu.hidden = false;
-    menu.style.left = clamp(e.clientX, 3, window.innerWidth - menu.offsetWidth - 3) + 'px';
-    menu.style.top = clamp(e.clientY, 3, window.innerHeight - menu.offsetHeight - 3) + 'px';
-    menu.firstElementChild?.focus();
-  }
-
   listen(
     scroller,
     'wheel',
@@ -645,18 +584,6 @@ export function createTimeline(container, api) {
       api.select([id]);
       api.inspect(id);
     }
-  });
-  listen(scroller, 'contextmenu', context);
-  listen(
-    document,
-    'pointerdown',
-    (e) => {
-      if (!menu.contains(e.target)) menu.hidden = true;
-    },
-    { capture: true },
-  );
-  listen(document, 'keydown', (e) => {
-    if (e.key === 'Escape') menu.hidden = true;
   });
   function assetPosition(e) {
     return snapPoint(atX(e.clientX), magnets(new Set()), api.flags().timelineSnap !== false);

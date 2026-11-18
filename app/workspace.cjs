@@ -121,6 +121,7 @@ class Workspace {
       theme: 'system',
       timelineSnap: true,
       sceneSnap: true,
+      edgeDragMode: 'crop',
       silenceDb: -35,
       silenceDuration: 0.4,
       captionLanguage: 'auto',
@@ -164,6 +165,7 @@ class Workspace {
         defaultQuality: qualities,
         theme: ['light', 'dark', 'system'],
         language: ['pl', 'en'],
+        edgeDragMode: ['crop', 'stretch'],
         captionLanguage: ['auto', 'pl', 'en'],
         captionModel: ['small', 'large-v3', 'large-v3-turbo'],
       })) {

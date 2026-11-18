@@ -251,12 +251,8 @@
   opacity: 0;
 }
 .ce-stage:hover .ce-stage-crop,
-.ce-stage-crop:focus-visible,
-.ce-stage-crop.ce-active {
+.ce-stage-crop:focus-visible {
   opacity: 1;
-}
-.ce-stage-crop.ce-active {
-  color: var(--ce-accent);
 }
 .ce-stage-crop .ce-icon {
   width: 13px;

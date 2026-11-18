@@ -12,10 +12,16 @@ export const endTime = ({ clips = [] }) => clips.reduce((end, clip) => Math.max(
 export const loops = (asset) =>
   asset?.kind === 'video' && ['visualfx', 'sticker'].includes(asset.category);
 
+/** The image or video asset that can be opened in the source crop dialog. */
+export function visualSource(project, clip) {
+  if (clip?.kind !== 'media') return;
+  const asset = project.assets[clip.assetId];
+  if (asset && asset.kind !== 'audio') return asset;
+}
+
 /** Whether a timeline item has a visual surface for direct manipulation. */
 export function isVisual(project, clip) {
-  if (clip.kind === 'media')
-    return Boolean(project.assets[clip.assetId] && project.assets[clip.assetId].kind !== 'audio');
+  if (clip.kind === 'media') return Boolean(visualSource(project, clip));
   if (clip.kind === 'compound') return clip.children.some((child) => isVisual(project, child));
   return true;
 }

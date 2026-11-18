@@ -4,6 +4,22 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { Workspace } = require('../app/workspace.cjs');
+test('edge handles default to cropping on upgrade and remember a valid stretch preference', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-edge-settings-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const config = { data: dir, documents: dir, videos: dir, bundled: dir };
+  await fs.writeFile(path.join(dir, 'settings.json'), JSON.stringify({ theme: 'dark' }));
+  const workspace = new Workspace(config);
+  await workspace.init();
+  assert.equal(workspace.settings.edgeDragMode, 'crop');
+  await workspace.setSettings({ edgeDragMode: 'stretch' });
+  const reopened = new Workspace(config);
+  await reopened.init();
+  assert.equal(reopened.settings.edgeDragMode, 'stretch');
+  assert.equal((await reopened.setSettings({ edgeDragMode: 'invalid' })).edgeDragMode, 'stretch');
+  assert.equal((await reopened.setSettings({ edgeDragMode: 'crop' })).edgeDragMode, 'crop');
+});
+
 test('an unreadable import does not leave a broken shared asset or remove the source', async (t) => {
   const { Library } = require('../app/library.cjs');
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cut-bad-import-'));

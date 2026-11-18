@@ -146,7 +146,7 @@ export function renderChat(host) {
     );
     for (const sample of [
       t('Wstaw tytuł na początku filmu.', 'Add a title at the beginning.'),
-      t('Wygeneruj naklejkę z migającą gwiazdą.', 'Generate a blinking star sticker.'),
+      t('Wygeneruj naklejkę z animowaną, zakręconą strzałką.', 'Generate an animated curved arrow sticker.'),
     ])
       intro.append(
         btn(

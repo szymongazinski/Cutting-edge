@@ -8,6 +8,7 @@ const { execFileSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { Workspace, readJson, writeJson, filename, validProject } = require('./workspace.cjs');
 const { Library, isMedia, mediaExt } = require('./library.cjs');
+const { resolveStickerPath } = require('./retired-stickers.cjs');
 const { sample } = require('./sample.cjs');
 const root = path.resolve(__dirname, '..');
 const engine = require('./engine.cjs');
@@ -163,15 +164,17 @@ async function opened(doc) {
   const missing = [];
   for (const a of Object.values(doc.project.assets)) {
     if (!isMedia(a.path)) continue;
-    library.allow(a);
     try {
+      a.path = await resolveStickerPath(a, ws);
+      library.allow(a);
       await fs.access(a.path);
       if (
         (a.previewPath && !(await exists(a.previewPath))) ||
         (a.thumbnail && !(await exists(a.thumbnail)))
       ) {
         const updated = await library.inspect(a.path, a.category, a.group);
-        Object.assign(a, updated, { id: a.id });
+        // A rebuilt preview can use the source directly after a codec or cache update.
+        Object.assign(a, { previewPath: undefined, thumbnail: undefined }, updated, { id: a.id });
       }
     } catch {
       missing.push(a.name);

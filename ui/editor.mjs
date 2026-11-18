@@ -3,6 +3,7 @@ import { clamp, timecode } from './editor-math.mjs';
 import { button, element, icon, label } from './editor-dom.mjs';
 import { createPreview } from './editor-preview.mjs';
 import { createTimeline } from './editor-timeline.mjs';
+import { attachClipMenu } from './editor-menu.mjs';
 
 /** Mount one timeline, stage and transport. Zoom is expressed in CSS pixels per second. */
 export function mountEditor({
@@ -19,6 +20,7 @@ export function mountEditor({
   assetUrl,
   dropAsset,
   inspect,
+  cropSource,
 }) {
   const t = translate || ((pl, en) => en);
   let now = 0,
@@ -182,6 +184,7 @@ export function mountEditor({
     select,
     commit,
     inspect,
+    cropSource,
     drop: dropAsset,
     pause,
     seek,
@@ -213,6 +216,7 @@ export function mountEditor({
   };
   preview = createPreview(stage, api);
   lanes = createTimeline(timeline, api);
+  const detachClipMenu = attachClipMenu(stage, timeline, api);
   refresh();
   return {
     refresh,
@@ -225,6 +229,7 @@ export function mountEditor({
       gone = true;
       running = false;
       cancelAnimationFrame(raf);
+      detachClipMenu();
       preview.destroy();
       lanes.destroy();
       transport.replaceChildren();

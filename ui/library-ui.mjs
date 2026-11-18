@@ -39,19 +39,52 @@ const symbols = {
 };
 let ticket = 0;
 const loading = new Set();
-const familyNames = {
-  'Chat Bubble': 'Dymek',
-  'Check Mark': 'Potwierdzenie',
-  Confetti: 'Konfetti',
-  Crown: 'Korona',
-  'Heart Pop': 'Serce',
-  'Hot Flame': 'Płomień',
-  'Play Button': 'Odtwórz',
-  'Ringing Bell': 'Dzwonek',
-  'Sparkle Burst': 'Błysk',
-  'Thumbs Up': 'Kciuk w górę',
-};
-const colorNames = { Coral: 'Koralowy', Gold: 'Złoty', Mint: 'Miętowy', Violet: 'Fioletowy' };
+const familyNames = new Map([
+  ['Straight Arrow Thin', 'Prosta strzałka cienka'],
+  ['Straight Arrow Bold', 'Prosta strzałka gruba'],
+  ['Curved Arrow Thin', 'Zakręcona strzałka cienka'],
+  ['Curved Arrow Bold', 'Zakręcona strzałka gruba'],
+  ['Clean Circle', 'Kółko'],
+  ['Sketched Circle', 'Kółko odręczne'],
+  ['Double Circle', 'Kółko podwójne'],
+  ['Single Underline', 'Podkreślenie pojedyncze'],
+  ['Double Underline', 'Podkreślenie podwójne'],
+]);
+const colorNames = new Map([
+  ['Coral', 'Koralowy'], ['Gold', 'Złoty'], ['Mint', 'Miętowy'],
+  ['Violet', 'Fioletowy'], ['White', 'Biały'], ['Ink', 'Atramentowy'],
+]);
+const familyLabel = (name) => t(familyNames.get(name) ?? name, name);
+const variantLabel = (name) => t(colorNames.get(name) ?? name, name);
+const familyKey = (name) => name.normalize('NFC').toLowerCase();
+function stickerFamilies(assets) {
+  const folders = new Set(assets.map((asset) => asset.group || asset.name));
+  const folderKeys = new Set([...folders].map(familyKey));
+  const choices = new Map();
+  for (const folder of folders) {
+    const translated = familyLabel(folder);
+    let label = translated, value = translated;
+    if (translated !== folder && folderKeys.has(familyKey(translated))) {
+      // A real folder has claimed this translation. Keep both folders selectable.
+      const qualified = `${translated} (${folder})`;
+      label = folderKeys.has(familyKey(qualified)) ? folder : qualified;
+      value = folder;
+    }
+    choices.set(folder, { label, value });
+  }
+  return choices;
+}
+function folderForInput(choices, input) {
+  const typed = input.trim();
+  if (!typed || choices.has(typed)) return typed || undefined;
+  const key = familyKey(typed);
+  for (const folder of choices.keys()) if (familyKey(folder) === key) return folder;
+  for (const [folder, { label }] of choices) {
+    const translated = familyNames.get(folder);
+    if (familyKey(label) === key || (translated && familyKey(translated) === key)) return folder;
+  }
+  return typed;
+}
 export async function changeCategory(cat) {
   state.category = cat;
   state.query = '';
@@ -120,15 +153,15 @@ function tile(title, body, symbol, onClick) {
 function startImport(cat) {
   if (cat !== 'sticker') return importFiles(cat);
   const m = modal(t('Dodaj naklejkę lub wariant', 'Add sticker or variant'));
-  const groups = [...new Set((state.library.sticker || []).map((a) => a.group))];
+  const choices = stickerFamilies(state.library.sticker || []);
   const list = el(
     'datalist',
     { id: 'sticker-groups' },
-    groups.map((g) => el('option', { value: g })),
+    [...choices.values()].map(({ label, value }) => el('option', { value, label })),
   );
   const family = input('text', '', {
     list: 'sticker-groups',
-    placeholder: t('np. Gwiazda', 'e.g. Star'),
+    placeholder: t('np. Strzałka', 'e.g. Arrow'),
   });
   m.body.append(
     list,
@@ -145,17 +178,17 @@ function startImport(cat) {
   formAction(
     m,
     t('Wybierz pliki', 'Choose files'),
-    () => importFiles('sticker', undefined, family.value.trim() || undefined),
+    () => importFiles('sticker', undefined, folderForInput(choices, family.value)),
     t('Anuluj', 'Cancel'),
   );
 }
-const searchFilter = (a, q) =>
-  [a.name, a.group, a.variant]
+const searchFilter = (a, q, displayName) =>
+  [a.name, a.group, a.variant, displayName, familyLabel(a.group), variantLabel(a.variant)]
     .filter(Boolean)
     .join(' ')
     .toLocaleLowerCase()
     .includes(q.toLocaleLowerCase());
-function makeAsset(a, variants) {
+function makeAsset(a, variants, familyName) {
   let current = a;
   const holder = el('div', {
     class: 'asset ' + (state.assetId === a.id ? 'active' : ''),
@@ -215,11 +248,7 @@ function makeAsset(a, variants) {
               ? 'sticker'
               : 'film',
       ),
-      el(
-        'span',
-        {},
-        variants ? t(familyNames[current.group] || current.group, current.group) : current.name,
-      ),
+      el('span', {}, variants ? familyName : current.name),
     );
     const add = el(
       'button',
@@ -238,7 +267,7 @@ function makeAsset(a, variants) {
     holder.replaceChildren(thumb, label, add);
     if (variants?.length > 1) {
       const picker = select(
-        variants.map((v) => [v.id, t(colorNames[v.variant] || v.variant, v.variant)]),
+        variants.map((v) => [v.id, variantLabel(v.variant)]),
         current.id,
       );
       picker.className = 'variant';
@@ -254,11 +283,13 @@ function makeAsset(a, variants) {
       };
       holder.append(picker);
     }
+    holder.ariaLabel = variants
+      ? [familyName, variantLabel(current.variant)].filter(Boolean).join(' · ')
+      : current.name;
     holder.title =
-      current.name +
+      holder.ariaLabel +
       ' · ' +
       t('Przeciągnij lub kliknij dwukrotnie, aby dodać', 'Drag or double-click to add');
-    holder.ariaLabel = current.name;
   }
   holder.onclick = selectAsset;
   holder.ondblclick = () => {
@@ -284,14 +315,18 @@ function makeAsset(a, variants) {
   return holder;
 }
 function drawAssets(content, assets, cat) {
-  const filtered = assets.filter((a) => searchFilter(a, state.query));
+  const families = cat === 'sticker' ? stickerFamilies(assets) : undefined;
+  const filtered = assets.filter((a) => searchFilter(a, state.query, families?.get(a.group || a.name)?.label));
   content.replaceChildren();
   if (filtered.length) {
     const grid = el('div', { class: 'asset-grid' });
     if (cat === 'sticker') {
       const groups = Map.groupBy(filtered, (a) => a.group || a.name);
-      for (const items of groups.values())
-        grid.append(makeAsset(items.find((a) => a.id === state.assetId) || items[0], items));
+      for (const name of new Set([...familyNames.keys(), ...groups.keys()])) {
+        const items = groups.get(name);
+        if (items)
+          grid.append(makeAsset(items.find((a) => a.id === state.assetId) || items[0], items, families.get(name).label));
+      }
     } else for (const a of filtered) grid.append(makeAsset(a));
     content.append(grid);
   } else {

@@ -13,7 +13,7 @@ Uruchom instalator, wybierz język, folder projektów i folder gotowych filmów.
 Możesz zainstalować lub zaktualizować aplikację z PowerShella. Skrypt pobierze bieżące stabilne wydanie, sprawdzi SHA-256 i uruchomi instalator.
 
 ~~~powershell
-& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.0/scripts/install.ps1'))) -Language pl
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.1/scripts/install.ps1'))) -Language pl
 ~~~
 
 Dodaj parametr `-Interactive`, aby otworzyć kreator. Parametry `-ProjectDir` i `-OutputDir` pozwalają podać własne katalogi. W zainstalowanej aplikacji użyj **Opcje → Sprawdź aktualizacje**. Kolejne wydania zastępują program w dotychczasowej lokalizacji.
@@ -23,7 +23,7 @@ Dodaj parametr `-Interactive`, aby otworzyć kreator. Parametry `-ProjectDir` i 
 1. Przy pierwszym uruchomieniu otworzy się edytowalny przykład „Na grani”. Kliknij nazwę projektu u góry i wybierz **Nowy projekt**, aby zacząć własny.
 2. Upuść pliki w bibliotece mediów. Przeciągnij źródło na wybraną ścieżkę i czas. Dwuklik w bibliotece umieszcza klip przy głowicy. Przeciągnij krawędź klipu, aby skrócić nagranie.
 3. Ustaw kamerę i ekran na osobnych ścieżkach. Wyrównaj je na podstawie odsłuchu i przebiegu dźwięku. Zaznacz oba z Ctrl, wybierz **Synchronizuj i utwórz klip złożony** i wpisz dokładne przesunięcia. Dwuklik w klip złożony otwiera jego zawartość.
-4. W inspektorze ustaw położenie, kadrowanie, wzmocnienie lub wyciszenie. Warstwy możesz też przesuwać na podglądzie. Przełącznik na scenie przyciąga do krawędzi i osi środka kadru oraz do innych elementów.
+4. W inspektorze ustaw położenie, kadrowanie, wzmocnienie lub wyciszenie. Polecenie **Kadruj źródło** otworzysz też prawym przyciskiem myszy na obrazie lub filmie w podglądzie i na osi czasu. W podglądzie przeciągnięcie uchwytu na krawędzi przycina obraz, a z wciśniętym Ctrl rozciąga go w jednej osi. Narożniki skalują obraz z zachowaniem proporcji. W **Ustawieniach → Uchwyty krawędzi źródła** możesz zamienić działanie krawędzi i Ctrl. Przełącznik przyciągania na scenie pozwala wyrównywać warstwy do kadru i innych elementów.
 5. Użyj **Wytnij ciszę**, aby przeanalizować cały plik z biblioteki, przycięty klip lub klip złożony. Zacznij od −35 dB i 0,40 s. Przed wycięciem zobaczysz liczbę przerw i łączny czas. Cięcie na osi przesuwa razem pozostałe ścieżki. Analiza całego źródła z biblioteki dodaje skróconą wersję na oś.
 6. Kliknij **Eksportuj** i wybierz MP4, MOV, MKV lub WebM, rozdzielczość, liczbę klatek i jakość. W **Opcjach** ustawisz wartości domyślne dla nowych projektów. Przy pionowym kadrze podgląd zajmuje prawą stronę okna. Przeciągnij separator, aby zmienić proporcje paneli.
 
@@ -33,7 +33,9 @@ Projekt zapisuje się automatycznie. Plik .cutproj przechowuje montaż i odwoła
 
 W zakładce **Media → Globalne** trzymaj materiały używane w wielu projektach, na przykład gotową czołówkę. Zakładki **Audio**, **Efekty** i **Naklejki** mają własne biblioteki. Możesz importować pliki w aplikacji lub dodać je w Eksploratorze, a następnie odświeżyć bibliotekę. Przycisk folderu otwiera jej katalog.
 
-Dane znajdują się w `%LOCALAPPDATA%\Cutting edge\Library`. W standardowej instalacji ten sam katalog jest dostępny jako **Library** obok pliku wykonywalnego. Podfoldery to `global`, `audiofx`, `visualfx` i `sticker`. Umieść warianty jednej naklejki w podfolderze o nazwie rodziny. W bibliotece wybierasz wariant z listy na jednej karcie. W zestawie jest 10 rodzin po 4 kolory.
+Dane znajdują się w `%LOCALAPPDATA%\Cutting edge\Library`. W standardowej instalacji ten sam katalog jest dostępny jako **Library** obok pliku wykonywalnego. Podfoldery to `global`, `audiofx`, `visualfx` i `sticker`. Umieść warianty jednej naklejki w podfolderze o nazwie rodziny.
+
+Wbudowane naklejki to animowane strzałki proste i zakręcone, cienkie i grube, trzy rodzaje kółek oraz podkreślenie pojedyncze i podwójne. Każdy z dziewięciu wzorów ma sześć kolorów do wyboru na jednej karcie. Aktualizacja z wersji 1.0.0 przenosi jej fabryczne wzory do archiwum. Wcześniejsze projekty nadal mogą z nich korzystać.
 
 Rozciągnięty GIF lub film z biblioteki naklejek i efektów wizualnych odtwarza się w pętli. Klipy wideo importowane jako zwykłe media kończą się wraz ze źródłem.
 

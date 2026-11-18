@@ -1,7 +1,7 @@
 import { el, icon, btn, field, fields, section, input, number, api, notify, run, by } from './dom.mjs';
 import { state, t, project, selected, chosen, commit, changeClip, jumpIn } from './session.mjs';
 import { syncClips, silenceDialog, projectSettings } from './dialogs.mjs';
-import { cropDialog, boxFields } from './geometry-form.mjs';
+import { editSourceCrop, boxFields } from './geometry-form.mjs';
 import { textDialog, editCaptions, captionDialog } from './captions.mjs';
 import { renderChat } from './chat.mjs';
 const symbols = { media: 'film', compound: 'layers', caption: 'captions', text: 'type' };
@@ -133,10 +133,7 @@ export function drawInspector() {
         btn(
           'crop',
           t('Kadruj źródło', 'Crop source'),
-          run(async () => {
-            const crop = await cropDialog(a, c.box, c.crop);
-            if (crop) changeClip(c.id, { crop });
-          }),
+          run(() => editSourceCrop(c.id)),
         ),
       );
     host.append(section(t('Położenie i kadr', 'Position and framing'), ...content));
