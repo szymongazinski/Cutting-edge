@@ -37,7 +37,7 @@ function frameEnds(data) {
   return ends;
 }
 
-export function gifPlayer(canvas, url, fail) {
+export function gifPlayer(canvas, url, fail, onFirstFrame) {
   let decoder,
     ends,
     disposed = false,
@@ -59,6 +59,7 @@ export function gifPlayer(canvas, url, fail) {
     decoding = true;
     try {
       const { image } = await decoder.decode({ frameIndex: lo });
+      const first = shown === -1;
       if (!disposed) {
         if (canvas.width !== image.displayWidth) canvas.width = image.displayWidth;
         if (canvas.height !== image.displayHeight) canvas.height = image.displayHeight;
@@ -67,6 +68,7 @@ export function gifPlayer(canvas, url, fail) {
         shown = lo;
       }
       image.close();
+      if (first && !disposed) onFirstFrame?.(canvas.width, canvas.height);
     } catch {
       if (!disposed) {
         fail();

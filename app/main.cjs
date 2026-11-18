@@ -13,6 +13,7 @@ const { sample } = require('./sample.cjs');
 const root = path.resolve(__dirname, '..');
 const engine = require('./engine.cjs');
 const testProfile = process.env.CUTTING_EDGE_PROFILE;
+const hiddenTestWindow = Boolean(testProfile) && process.env.CUTTING_EDGE_QA_HIDDEN === '1';
 if (testProfile) app.setPath('userData', path.resolve(testProfile));
 app.setName('Cutting edge');
 app.setAppUserModelId('CuttingEdge.Editor');
@@ -100,9 +101,20 @@ function registerSchemes() {
   });
   protocol.handle('cutting-media', async (req) => {
     try {
-      const file = path.resolve(decodeURIComponent(new URL(req.url).pathname.slice(1)));
+      const url = new URL(req.url);
+      const file = path.resolve(decodeURIComponent(url.pathname.slice(1)));
       if (!library.allowed.has(file.toLowerCase()) || !isMedia(file))
         return new Response(null, { status: 403 });
+      if (url.searchParams.has('frame')) {
+        const value = url.searchParams.get('frame').trim();
+        const time = Number(value);
+        if (req.method !== 'GET' || !value || !Number.isFinite(time) || time < 0)
+          return new Response(null, { status: 400 });
+        const frame = await library.cropFrame(file, time, req.signal);
+        return new Response(frame, {
+          headers: { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' },
+        });
+      }
       const { size } = await fs.stat(file);
       const headers = {
         'Content-Type': mime[path.extname(file).slice(1).toLowerCase()] || 'application/octet-stream',
@@ -422,6 +434,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       backgroundThrottling: false,
+      offscreen: hiddenTestWindow,
     },
   });
   Menu.setApplicationMenu(null);
@@ -435,14 +448,14 @@ function createWindow() {
       send('closeRequested');
     }
   });
-  win.once('ready-to-show', () => win.show());
+  if (!hiddenTestWindow) win.once('ready-to-show', () => win.show());
   win.loadURL('cutting://editor/ui/index.html');
 }
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', (_event, args) => {
     const file = args.find((a) => /\.cutproj$/i.test(a));
-    if (win) {
+    if (win && !hiddenTestWindow) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }

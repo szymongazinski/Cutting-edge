@@ -35,19 +35,24 @@ async function getBinaries() {
 }
 
 const fileProtocols = ['-protocol_whitelist', 'file,pipe'];
-async function probeAsset(file) {
+async function probeAsset(file, { signal, formats } = {}) {
   const { ffprobe } = await getBinaries();
+  // JPEG EXIF orientation is attached to its decoded frame in FFprobe.
+  const jpeg = /\.jpe?g$/i.test(file);
   const { stdout } = await run(ffprobe, [
     '-v',
     'error',
     ...fileProtocols,
+    ...(formats ? ['-format_whitelist', formats] : []),
     '-of',
     'json',
+    ...(jpeg ? ['-read_intervals', '%+#1'] : []),
     '-show_entries',
-    'format=format_name,duration:format_tags=major_brand:stream=codec_name,codec_type,nb_frames,width,height,duration,pix_fmt:stream_tags=alpha_mode:stream_disposition=attached_pic:stream_side_data=rotation',
+    'format=format_name,duration:format_tags=major_brand:stream=codec_name,codec_type,nb_frames,width,height,duration,pix_fmt:stream_tags=alpha_mode:stream_disposition=attached_pic:stream_side_data=rotation' +
+      (jpeg ? ':frame_side_data=rotation' : ''),
     '-i',
     path.resolve(file),
-  ]);
+  ], { signal });
   const info = JSON.parse(stdout);
   const streams = info.streams || [];
   const video = streams.find((s) => s.codec_type === 'video' && !s.disposition?.attached_pic);
@@ -62,7 +67,8 @@ async function probeAsset(file) {
       formatName.includes('image2') ||
       formatName.endsWith('_pipe') ||
       (['apng', 'gif', 'webp'].includes(video.codec_name) && Number(video.nb_frames) === 1));
-  const rotation = video?.side_data_list?.map((s) => Number(s.rotation)).find(Number.isFinite) || 0;
+  const matrices = [...(info.frames?.[0]?.side_data_list || []), ...(video?.side_data_list || [])];
+  const rotation = matrices.map((s) => Number(s.rotation)).find(Number.isFinite) || 0;
   const sideways = Math.abs(Math.round(rotation / 90)) % 2 === 1;
   const duration = Math.max(
     0,

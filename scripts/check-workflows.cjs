@@ -38,7 +38,7 @@ const root = path.resolve(__dirname, '..');
   const application = await _electron.launch({
     args: process.env.CUTTING_EDGE_QA_EXE ? [] : [root],
     executablePath: process.env.CUTTING_EDGE_QA_EXE || require('electron'),
-    env: { ...process.env, CUTTING_EDGE_PROFILE: profile },
+    env: { ...process.env, CUTTING_EDGE_PROFILE: profile, CUTTING_EDGE_QA_HIDDEN: '1' },
     timeout: 60000,
   });
   const page = await application.firstWindow(),
@@ -127,8 +127,16 @@ const root = path.resolve(__dirname, '..');
     await button('Apply', page.locator('.template-card')).click();
     await dlg().locator('select').first().selectOption({ label: 'Ridgeline.mp4' });
     await button('Place on timeline', dlg()).click();
-    await page.getByRole('dialog', { name: 'Crop source' }).waitFor();
-    await page.getByLabel('Horizontal', { exact: true }).fill('0.85');
+    const selection = page.getByRole('dialog', { name: 'Crop source' }).locator('.crop-selection');
+    const frame = await selection.boundingBox();
+    const cx = frame.x + frame.width / 2, cy = frame.y + frame.height / 2;
+    const before = await page.locator('.crop-source').boundingBox();
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx - frame.width / 8, cy, { steps: 5 });
+    await page.mouse.up();
+    const after = await page.locator('.crop-source').boundingBox();
+    assert.ok(after.x < before.x - frame.width / 10);
     await button('Apply crop', dlg()).click();
     await page.waitForFunction(() => !document.querySelector('[role=dialog]'));
     assert.ok(

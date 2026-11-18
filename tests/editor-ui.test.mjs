@@ -206,13 +206,73 @@ uiTest(
 );
 
 async function connectCropDialog(page) {
+  await page.addStyleTag({ url: '/ui/shell.css' });
+  await page.addStyleTag({ content: '#app{display:block;height:auto}' });
   await page.evaluate(async () => {
     const { state: session } = await import('/ui/session.mjs');
     session.doc = { project: state };
     session.settings = settings;
+    session.editor = window.editor;
     window.cutting = { call: async () => {} };
   });
 }
+
+async function cropRegion(dialog) {
+  return dialog.locator('.crop-selection').evaluate((region) => {
+    const r = region.getBoundingClientRect(), s = region.parentElement.getBoundingClientRect();
+    return { x: (r.x - s.x) / s.width, y: (r.y - s.y) / s.height, w: r.width / s.width, h: r.height / s.height };
+  });
+}
+
+async function dragCropPoint(page, point, dx, dy) {
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  await page.mouse.move(point.x + dx, point.y + dy, { steps: 4 });
+  await page.mouse.up();
+}
+
+async function centerPoint(locator) {
+  const b = await locator.boundingBox();
+  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+}
+
+uiTest('large crop workspace trims, pans, zooms and cancels edits directly on the source', async (page) => {
+  await connectCropDialog(page);
+  await page.locator('.ce-clip[data-clip-id=a]').click({ button: 'right' });
+  await page.locator('.ce-edit-menu').getByRole('button', { name: 'Crop source' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Crop source' });
+  await dialog.waitFor();
+  assert.equal(await dialog.getByRole('slider').count(), 0);
+  const area = await dialog.locator('.crop-workspace').boundingBox();
+  assert.ok(area.width >= 880 && area.height >= 530);
+  assert.equal(await dialog.locator('[data-edge]').count(), 8);
+  const original = await page.evaluate(() => structuredClone(state.clips[0]));
+  const selection = dialog.locator('.crop-selection');
+  const bounds = await selection.boundingBox();
+  await dragCropPoint(page, await centerPoint(dialog.locator('[data-edge=w]')), bounds.width * 0.18, 0);
+  const trimmed = await cropRegion(dialog);
+  assert.ok(Math.abs(trimmed.x - 0.18) < 0.012 && Math.abs(trimmed.h - 1) < 0.003);
+  await dialog.getByRole('button', { name: 'Apply crop' }).click();
+  const changed = await page.evaluate(() => state.clips[0]);
+  assert.ok(Math.abs(changed.box.w / changed.crop.w - original.box.w) < 0.002);
+  assert.ok(Math.abs(changed.box.x + changed.box.w - original.box.x - original.box.w) < 0.002);
+  await page.locator('.ce-clip[data-clip-id=a]').click({ button: 'right' });
+  await page.locator('.ce-edit-menu').getByRole('button', { name: 'Crop source' }).click();
+  const point = await centerPoint(selection);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, -220);
+  await page.waitForFunction((w) => {
+    const f = document.querySelector('.crop-selection'), s = f.parentElement;
+    return f.getBoundingClientRect().width / s.getBoundingClientRect().width < w - 0.001;
+  }, trimmed.w);
+  const zoomed = await cropRegion(dialog);
+  await dragCropPoint(page, point, 26, 17);
+  const panned = await cropRegion(dialog);
+  assert.ok(panned.x < zoomed.x && panned.y < zoomed.y);
+  assert.ok(Math.abs(panned.w - zoomed.w) < 0.002);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  assert.deepEqual(await page.evaluate(() => state.clips[0]), changed);
+});
 
 uiTest('applying the crop dialog after stretching an edge preserves the existing frame', async (page) => {
   await connectCropDialog(page);
@@ -234,10 +294,9 @@ uiTest('applying the crop dialog after stretching an edge preserves the existing
   const before = await page.evaluate(() => state.clips[0]);
   await page.locator('.ce-stage-crop').click();
   const dialog = page.getByRole('dialog', { name: 'Crop source' });
-  const width = await dialog
-    .locator('.crop-frame > img')
-    .evaluate((image) => parseFloat(image.style.width));
-  assert.ok(Math.abs(width - 100 / before.crop.w) < 0.001, 'dialog must open on the visible source region');
+  const displayed = await cropRegion(dialog);
+  for (const key of ['x', 'y', 'w', 'h'])
+    assert.ok(Math.abs(displayed[key] - before.crop[key]) < 0.002, 'dialog must open on the visible source region');
   await dialog.getByRole('button', { name: 'Apply crop' }).click();
   assert.deepEqual(await page.evaluate(() => state.clips[0]), before);
 });
@@ -253,16 +312,19 @@ uiTest(
     await timeline.click({ button: 'right', position: { x: 25, y: 10 } });
     assert.equal(await crop.count(), 1, 'timeline menu should offer source cropping');
     await crop.click();
-    await dialog.getByRole('slider', { name: 'Zoom' }).fill('2');
+    let selection = await dialog.locator('.crop-selection').boundingBox();
+    await dragCropPoint(page, await centerPoint(dialog.locator('[data-edge=e]')), -selection.width / 2, 0);
     await dialog.getByRole('button', { name: 'Apply crop' }).click();
-    assert.equal(await page.evaluate(() => state.clips[1].crop.w), 0.5);
+    assert.ok(Math.abs(await page.evaluate(() => state.clips[1].crop.w) - 0.5) < 0.003);
     await page.locator('.ce-layer[data-top-id=a]').click({ button: 'right' });
     assert.equal(await crop.count(), 1, 'preview menu should offer source cropping');
     await crop.click();
-    assert.equal(await dialog.getByRole('slider', { name: 'Zoom' }).inputValue(), '1');
-    await dialog.getByRole('slider', { name: 'Zoom' }).fill('4');
+    assert.ok(Math.abs((await cropRegion(dialog)).w - 1) < 0.002);
+    selection = await dialog.locator('.crop-selection').boundingBox();
+    await dragCropPoint(page, await centerPoint(dialog.locator('[data-edge=e]')), -selection.width * 0.75, 0);
     await dialog.getByRole('button', { name: 'Apply crop' }).click();
-    assert.deepEqual(await page.evaluate(() => state.clips.map((c) => c.crop.w)), [0.25, 0.5]);
+    const widths = await page.evaluate(() => state.clips.map((c) => c.crop.w));
+    assert.ok(Math.abs(widths[0] - 0.25) < 0.003 && Math.abs(widths[1] - 0.5) < 0.003);
     await page.evaluate(async () => {
       const { state: session } = await import('/ui/session.mjs');
       session.selection = ['a'];
@@ -270,7 +332,7 @@ uiTest(
       (await import('/ui/inspector.mjs')).drawInspector();
     });
     await page.locator('#properties').getByRole('button', { name: 'Crop source', exact: true }).click();
-    assert.equal(await dialog.getByRole('slider', { name: 'Zoom' }).inputValue(), '4');
+    assert.ok(Math.abs((await cropRegion(dialog)).w - widths[0]) < 0.003);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await page.evaluate(() => {
       state.assets.sound = {

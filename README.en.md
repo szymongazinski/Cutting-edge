@@ -9,7 +9,7 @@ A Windows x64 multitrack video editor with English and Polish interfaces, local 
 Choose your language, project folder and export folder during setup. The defaults are Documents → Cutting edge → Projects and Videos → Cutting edge. Launch **Cutting edge** from Windows Start. To install the latest stable release from PowerShell, run the following command.
 
 ~~~powershell
-& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.2/scripts/install.ps1'))) -Language en
+& ([scriptblock]::Create((Invoke-RestMethod 'https://raw.githubusercontent.com/szymongazinski/Cutting-edge/v1.0.3/scripts/install.ps1'))) -Language en
 ~~~
 
 Add `-Interactive` for the setup wizard, or use `-ProjectDir` and `-OutputDir` to supply the paths. Use **Settings → Check for updates** for subsequent versions.
@@ -22,6 +22,8 @@ Put screen and camera recordings on separate tracks, align them by ear or wavefo
 
 Use the inspector for position, crop, gain and mute. You can also right-click an image or video on the timeline or in the preview and choose **Crop source**. Drag a preview edge handle to crop, or hold Ctrl to stretch along that axis. Corner handles scale proportionally. Reverse the edge and Ctrl gestures under **Settings → Source edge handles**.
 
+In **Crop source**, work directly on the large preview. Drag an edge to trim one side or a corner to keep the proportions. Scroll to zoom at the pointer, then drag the image inside the frame to pan in any direction. Arrow keys move by one source pixel, or ten with Shift. Template slots retain their proportions. Select **Apply crop** to save.
+
 The export dialog supports MP4, MOV, MKV and WebM, custom dimensions, frame rate and quality. Configure defaults in Settings. The preview sits above the timeline in landscape projects and on the full-height right side in portrait projects. Drag the divider to resize it.
 
 Project files autosave and reference original media. When moving to another machine, copy your footage with the .cutproj file and relink missing sources through the inspector.
@@ -30,7 +32,7 @@ Project files autosave and reference original media. When moving to another mach
 
 **Media → Global**, **Audio**, **Effects** and **Stickers** are available in every project. Import assets from inside the editor or open the library folder, copy files and refresh. The shared directory is `%LOCALAPPDATA%\Cutting edge\Library`, also accessible beside the executable in a standard installation. A subfolder under sticker represents one family. Its files appear as selectable variants. Sticker and visual-effect footage loops when extended. Ordinary video reaches its source end.
 
-The built-in animated stickers include straight and curved arrows in two weights, three circle styles, and single and double underlines. Choose among six colors on each of the nine cards. Upgrading from 1.0.0 archives the previous bundled designs so existing projects can still render them.
+Each straight and curved arrow comes in thin and bold weights with two animations. The original moves the whole arrow. The **Draw-On** version draws the line from tail to tip, holds the finished arrow and loops. Search for **Draw-On** to find all four. The library also includes three circle styles and single and double underlines. Choose among six colors on each card. Upgrading from 1.0.0 archives the previous bundled designs so existing projects can still render them.
 
 Create a template from your scene or define your own media, title and caption slots. Assign new footage and choose the crop for an oversized or differently shaped source. Select a saved caption slot when generating subtitles.
 

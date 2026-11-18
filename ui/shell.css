@@ -971,7 +971,6 @@ small {
 .modal progress {
   width: 100%;
 }
-.crop-zone,
 .placement {
   height: 165px;
   background: repeating-conic-gradient(#2a3030 0 25%, #232828 0 50%) 0 0/14px 14px;
@@ -981,20 +980,149 @@ small {
   overflow: hidden;
   border: 1px solid var(--line);
 }
-.crop-frame {
-  max-height: 97%;
-  max-width: 97%;
-  position: relative;
+.crop-dialog-layer {
+  padding: clamp(8px, 1.5vmin, 20px);
+}
+.modal.crop-dialog {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
   overflow: hidden;
-  border: 2px solid #abfbc0;
+}
+.crop-dialog .modal-head {
+  flex: none;
+  justify-content: flex-start;
+  gap: 14px;
+}
+.crop-dialog .modal-head h2,
+.crop-dialog .modal-head button {
+  flex: none;
+}
+.crop-filename {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crop-dialog .modal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+.crop-dialog .modal-foot {
+  flex: none;
+  flex-wrap: wrap;
+}
+.crop-hint {
+  flex: 1 1 220px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.crop-workspace {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--bg);
   touch-action: none;
+  user-select: none;
+}
+.crop-workspace:focus-visible {
+  outline: none;
+}
+.crop-source {
+  position: absolute;
+  background: repeating-conic-gradient(#313638 0 25%, #282c2e 0 50%) 0 0 / 18px 18px;
+}
+.crop-source > .crop-media,
+.crop-media > :is(img, video, canvas) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
+.crop-media-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: #171b1ef2;
+  color: #f3f6f2;
+  text-align: center;
+  pointer-events: none;
+}
+.crop-selection {
+  position: absolute;
+  outline: 1px solid #b8f5cd;
+  box-shadow: inset 0 0 0 1px #101e15, 0 0 0 16000px #02060680;
   cursor: grab;
 }
-.crop-frame img {
+.crop-workspace[data-hover='move'] .crop-source { cursor: move; }
+.crop-workspace:is([data-hover='n'], [data-hover='s']) :is(.crop-source, .crop-selection) { cursor: ns-resize; }
+.crop-workspace:is([data-hover='w'], [data-hover='e']) :is(.crop-source, .crop-selection) { cursor: ew-resize; }
+.crop-workspace:is([data-hover='nw'], [data-hover='se']) :is(.crop-source, .crop-selection) { cursor: nwse-resize; }
+.crop-workspace:is([data-hover='ne'], [data-hover='sw']) :is(.crop-source, .crop-selection) { cursor: nesw-resize; }
+.crop-workspace[data-drag='pan'], .crop-workspace[data-drag='pan'] * { cursor: grabbing; }
+.crop-workspace[data-drag='move'], .crop-workspace[data-drag='move'] * { cursor: move; }
+.crop-selection::before {
+  content: '';
   position: absolute;
+  inset: 0;
   pointer-events: none;
-  max-width: none;
+  opacity: 0;
+  background:
+    linear-gradient(to right, transparent 33.2%, #ffffff70 33.3%, transparent 33.5%, transparent 66.5%, #ffffff70 66.66%, transparent 66.8%),
+    linear-gradient(to bottom, transparent 33.2%, #ffffff70 33.3%, transparent 33.5%, transparent 66.5%, #ffffff70 66.66%, transparent 66.8%);
 }
+.crop-workspace[data-drag] .crop-selection::before {
+  opacity: 1;
+}
+.crop-grip {
+  position: absolute;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  touch-action: none;
+}
+.crop-grip::after {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: auto;
+  border: 1px solid #20382a;
+  border-radius: 2px;
+  background: #edfff3;
+  box-shadow: 0 1px 3px #0005;
+}
+.crop-grip:is([data-edge='n'], [data-edge='s'])::after { width: 18px; height: 6px; }
+.crop-grip:is([data-edge='w'], [data-edge='e'])::after { width: 6px; height: 18px; }
+.crop-grip[data-edge='nw'] { left: 0; top: 0; cursor: nwse-resize; }
+.crop-grip[data-edge='n'] { left: 50%; top: 0; cursor: ns-resize; }
+.crop-grip[data-edge='ne'] { left: 100%; top: 0; cursor: nesw-resize; }
+.crop-grip[data-edge='e'] { left: 100%; top: 50%; cursor: ew-resize; }
+.crop-grip[data-edge='se'] { left: 100%; top: 100%; cursor: nwse-resize; }
+.crop-grip[data-edge='s'] { left: 50%; top: 100%; cursor: ns-resize; }
+.crop-grip[data-edge='sw'] { left: 0; top: 100%; cursor: nesw-resize; }
+.crop-grip[data-edge='w'] { left: 0; top: 50%; cursor: ew-resize; }
 .placement-inner {
   height: 100%;
   max-width: 100%;

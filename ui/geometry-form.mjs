@@ -1,7 +1,9 @@
-import { el, fields, field, number, input, modal, formAction, mediaUrl } from './dom.mjs';
-import { t, project, changeClip } from './session.mjs';
+import { el, btn, fields, field, number, modal, formAction } from './dom.mjs';
+import { state, t, time, project, changeClip } from './session.mjs';
 import { coverCrop } from './layout.mjs';
-import { fullBox, visualSource } from './model.mjs';
+import { fullBox, loops, visualSource } from './model.mjs';
+import { createCropCanvas } from './crop-canvas.mjs';
+import { createCropMedia } from './crop-media.mjs';
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 export function boxFields(box, changed = () => {}) {
   const initial = box || fullBox();
@@ -75,108 +77,68 @@ export async function editSourceCrop(id) {
   const clip = p.clips.find((c) => c.id === id);
   const asset = visualSource(p, clip);
   if (!asset) return;
-  const initial = clip.crop || fullBox();
-  const crop = await cropDialog(asset, clip.box || fullBox(), initial);
-  if (crop && crop !== initial) changeClip(id, { crop });
+  state.editor?.pause();
+  const offset = clamp(time() - clip.start, 0, Math.max(0, clip.duration - 0.000001));
+  let sourceTime = (clip.in || 0) + offset;
+  if (loops(asset) && asset.duration > 0) sourceTime %= asset.duration;
+  const crop = clip.crop || fullBox();
+  const box = clip.box || fullBox();
+  const result = await openCropWorkspace(asset, box, crop, sourceTime, false);
+  if (!result) return;
+  const patch = {};
+  if (result.crop !== crop) patch.crop = result.crop;
+  if (result.box !== box) patch.box = result.box;
+  if (Object.keys(patch).length) changeClip(id, patch);
 }
 
-export function cropDialog(asset, box, initial = null) {
+// Template slots keep their placement and aspect ratio when replacing footage.
+export async function cropDialog(asset, box, initial = null) {
+  state.editor?.pause();
+  const result = await openCropWorkspace(asset, box, initial, 0, true);
+  return result?.crop ?? null;
+}
+
+function openCropWorkspace(asset, box, initial, sourceTime, fixedSlot) {
+  const p = project();
+  const sourceWidth = asset.width || p.width;
+  const sourceHeight = asset.height || p.height;
+  const crop = initial || coverCrop(sourceWidth, sourceHeight, box.w * p.width, box.h * p.height);
+  const media = createCropMedia(asset, sourceTime, {
+    onDimensions(w, h) {
+      const templateCrop = fixedSlot && !initial ? coverCrop(w, h, box.w * p.width, box.h * p.height) : null;
+      workspace.setSourceSize(w, h, templateCrop);
+    },
+  });
+  const workspace = createCropCanvas({ media: media.element, sourceWidth, sourceHeight, crop, box, fixedSlot, t });
+  workspace.element.append(media.element.querySelector('.crop-media-status'));
   return new Promise((resolve) => {
-    let settled = false;
+    let result = null;
     const m = modal(t('Kadrowanie źródła', 'Crop source'), {
-      onClose: () => {
-        if (!settled) resolve(null);
+      onClose() {
+        workspace.destroy();
+        media.destroy();
+        resolve(result);
       },
     });
-    const p = project(),
-      targetRatio = (box.w * p.width) / (box.h * p.height);
-    let crop = initial || coverCrop(asset.width || p.width, asset.height || p.height, targetRatio, 1);
-    // A stretched frame can have a different aspect ratio from its source crop.
-    const longest = Math.max(crop.w, crop.h);
-    const fit = { w: crop.w / longest, h: crop.h / longest };
-    let zoom = 1 / longest;
-    let fx = crop.w < 1 ? clamp(crop.x / (1 - crop.w), 0, 1) : 0.5;
-    let fy = crop.h < 1 ? clamp(crop.y / (1 - crop.h), 0, 1) : 0.5;
-    const preview = el('img', {
-      src: mediaUrl(asset.thumbnail || asset.previewPath || asset.path),
-      alt: asset.name,
+    m.layer.classList.add('crop-dialog-layer');
+    m.panel.classList.add('crop-dialog');
+    const heading = m.panel.querySelector('.modal-head h2');
+    heading.after(el('span', { class: 'crop-filename', title: asset.name }, asset.name));
+    const hint = el('span', { class: 'crop-hint', id: 'crop-gestures' }, t(
+      'Przeciągnij obraz, aby go przesunąć. Uchwyty przycinają, a kółko przybliża i oddala.',
+      'Drag the image to pan. Drag a handle to crop. Scroll to zoom in or out.',
+    ));
+    workspace.element.setAttribute('aria-describedby', hint.id);
+    m.body.append(workspace.element);
+    m.foot.append(hint, btn('undo-2', t('Cofnij zmiany', 'Revert changes'), () => {
+      workspace.reset();
+      workspace.element.focus({ preventScroll: true });
+    }));
+    formAction(m, t('Zastosuj kadr', 'Apply crop'), () => {
+      result = workspace.getResult();
+    }, t('Anuluj', 'Cancel'));
+    requestAnimationFrame(() => {
+      if (m.layer.isConnected) workspace.element.focus({ preventScroll: true });
     });
-    const frame = el(
-      'div',
-      {
-        class: 'crop-frame',
-        style: {
-          aspectRatio: String(targetRatio),
-          height: targetRatio < 2.3 ? '96%' : 'auto',
-          width: targetRatio < 2.3 ? 'auto' : '96%',
-        },
-      },
-      preview,
-    );
-    const slider = input('range', zoom, { min: 1, max: Math.max(8, Math.ceil(zoom)), step: 0.01 });
-    const controlX = input('range', fx, { min: 0, max: 1, step: 0.001 }),
-      controlY = input('range', fy, { min: 0, max: 1, step: 0.001 });
-    function update() {
-      const w = fit.w / zoom,
-        h = fit.h / zoom;
-      crop = { x: fx * (1 - w), y: fy * (1 - h), w, h };
-      paint();
-    }
-    function paint() {
-      Object.assign(preview.style, {
-        width: 100 / crop.w + '%',
-        height: 100 / crop.h + '%',
-        left: (-100 * crop.x) / crop.w + '%',
-        top: (-100 * crop.y) / crop.h + '%',
-      });
-      slider.value = zoom;
-      controlX.value = fx;
-      controlY.value = fy;
-    }
-    slider.oninput = () => {
-      zoom = +slider.value;
-      update();
-    };
-    controlX.oninput = () => {
-      fx = +controlX.value;
-      update();
-    };
-    controlY.oninput = () => {
-      fy = +controlY.value;
-      update();
-    };
-    frame.onpointerdown = (e) => {
-      frame.setPointerCapture(e.pointerId);
-      const x = e.clientX,
-        y = e.clientY,
-        a = fx,
-        b = fy,
-        c = crop,
-        r = frame.getBoundingClientRect();
-      frame.onpointermove = (ev) => {
-        fx = clamp(a - (((ev.clientX - x) / r.width) * c.w) / Math.max(0.0001, 1 - c.w), 0, 1);
-        fy = clamp(b - (((ev.clientY - y) / r.height) * c.h) / Math.max(0.0001, 1 - c.h), 0, 1);
-        update();
-      };
-      frame.onlostpointercapture = () => {
-        frame.onpointermove = null;
-      };
-    };
-    paint();
-    m.body.append(
-      el('strong', {}, asset.name),
-      el('div', { class: 'crop-zone' }, frame),
-      field(t('Powiększenie', 'Zoom'), slider),
-      fields(field(t('Poziomo', 'Horizontal'), controlX), field(t('Pionowo', 'Vertical'), controlY)),
-    );
-    formAction(
-      m,
-      t('Zastosuj kadr', 'Apply crop'),
-      () => {
-        settled = true;
-        resolve(crop);
-      },
-      t('Anuluj', 'Cancel'),
-    );
   });
 }

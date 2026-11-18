@@ -5,6 +5,78 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const { _electron } = require('playwright-core');
 const root = path.resolve(__dirname, '..');
+
+async function zoomCropAtCenter(page, dialog) {
+  const frame = await dialog.locator('.crop-selection').boundingBox();
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2);
+  await page.mouse.wheel(0, -200);
+  await page.waitForFunction(() => {
+    const source = document.querySelector('.crop-source').getBoundingClientRect();
+    const selection = document.querySelector('.crop-selection').getBoundingClientRect();
+    return selection.width / source.width < 0.9;
+  });
+}
+
+async function verifyWideCrop(page, profile, dialog, screenshot) {
+  const file = path.join(profile, 'Geometry study.png');
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2160;
+    canvas.height = 396;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f8f7f1';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#d3d8d5';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < canvas.width; x += 32) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, 396); }
+    for (let y = 0; y < canvas.height; y += 32) { ctx.moveTo(0, y + 0.5); ctx.lineTo(2160, y + 0.5); }
+    ctx.stroke();
+    ctx.fillStyle = '#243b38';
+    ctx.font = 'italic 80px Georgia';
+    ctx.fillText('a² + b² = c²', 104, 215);
+    ctx.fillText('sin² θ + cos² θ = 1', 1136, 215);
+    ctx.strokeStyle = '#427567';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(776, 280); ctx.lineTo(776, 96); ctx.lineTo(1006, 280); ctx.closePath();
+    ctx.stroke();
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await fs.writeFile(file, Buffer.from(png, 'base64'));
+  await page.evaluate(async (file) => {
+    const { assets, errors } = await window.cutting.call('mediaImport', { category: 'media', files: [file] });
+    if (errors.length) throw Error(errors.join('\n'));
+    const p = window.qaSession.project();
+    const slot = { x: 0, y: 0, w: 1, h: p.width / p.height * 396 / 2160 };
+    const { cropDialog } = await import('./geometry-form.mjs');
+    window.qaCropResult = cropDialog(assets[0], slot);
+  }, file);
+  await page.waitForFunction(() => document.querySelector('.crop-media img')?.naturalWidth === 2160);
+  const img = dialog.locator('.crop-media img');
+  assert.equal(decodeURIComponent(new URL(await img.getAttribute('src')).pathname.slice(1)), file);
+  const initial = await dialog.locator('.crop-selection').boundingBox();
+  const workspace = await dialog.locator('.crop-workspace').boundingBox();
+  assert.ok(initial.width > workspace.width * 0.9);
+  const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert.ok(workspace.width > 0.92 * viewport.width && workspace.height > 0.75 * viewport.height);
+  await screenshot('crop-workspace.png');
+  await zoomCropAtCenter(page, dialog);
+  const source = dialog.locator('.crop-source');
+  const before = await source.boundingBox();
+  assert.ok(before.width > initial.width * 1.2);
+  const x = initial.x + initial.width / 2, y = initial.y + initial.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 31, y - 19, { steps: 5 });
+  await page.mouse.up();
+  const after = await source.boundingBox();
+  assert.ok(Math.abs(after.x - before.x - 31) < 1 && Math.abs(after.y - before.y + 19) < 1);
+  await dialog.getByRole('button', { name: 'Apply crop' }).click();
+  const crop = await page.evaluate(() => window.qaCropResult);
+  assert.ok(crop.x > 0 && crop.y > 0 && crop.w < 0.9 && Math.abs(crop.w - crop.h) < 1e-6);
+}
+
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'cutting-edge-ui-'));
   const docs = path.join(profile, 'Projects'),
@@ -16,7 +88,7 @@ const root = path.resolve(__dirname, '..');
   const app = await _electron.launch({
     args: process.env.CUTTING_EDGE_QA_EXE ? [] : [root],
     executablePath: process.env.CUTTING_EDGE_QA_EXE || require('electron'),
-    env: { ...process.env, CUTTING_EDGE_PROFILE: profile },
+    env: { ...process.env, CUTTING_EDGE_PROFILE: profile, CUTTING_EDGE_QA_HIDDEN: '1' },
     timeout: 60000,
   });
   const errors = [];
@@ -50,10 +122,16 @@ const root = path.resolve(__dirname, '..');
       { timeout: 18000 },
     );
     const screenshots = process.env.CUTTING_EDGE_SCREENSHOTS;
-    if (screenshots) {
+    async function screenshot(name) {
+      if (!screenshots) return;
       await fs.mkdir(screenshots, { recursive: true });
-      await page.screenshot({ path: path.join(screenshots, 'landscape.png') });
+      const encoded = await app.evaluate(async ({ BrowserWindow }) => {
+        const content = BrowserWindow.getAllWindows()[0].webContents;
+        return (await content.capturePage(undefined, { stayHidden: true })).toPNG().toString('base64');
+      });
+      await fs.writeFile(path.join(screenshots, name), Buffer.from(encoded, 'base64'));
     }
+    await screenshot('landscape.png');
     await page.getByRole('button', { name: 'Play (Space)', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('#stage video')?.currentTime > 0.12);
     await page.getByRole('button', { name: 'Pause (Space)', exact: true }).click();
@@ -73,8 +151,16 @@ const root = path.resolve(__dirname, '..');
     const cropDialog = page.getByRole('dialog', { name: 'Crop source', exact: true });
     await footage.click({ button: 'right' });
     await cropMenu.click();
-    assert.equal(await cropDialog.locator('img').getAttribute('alt'), 'Ridgeline.mp4');
-    await cropDialog.getByLabel('Zoom').press('ArrowRight');
+    assert.equal(await cropDialog.locator('.crop-filename').textContent(), 'Ridgeline.mp4');
+    assert.equal(await cropDialog.getByRole('slider').count(), 0);
+    await page.waitForFunction(() => {
+      const v = document.querySelector('.crop-media video');
+      const { time, project } = window.qaSession;
+      const clip = project().clips.find((c) => c.name === 'Ridgeline.mp4');
+      return v?.videoWidth > 0 && v.readyState >= 2 && !v.seeking && v.paused
+        && Math.abs(v.currentTime - (clip.in + time() - clip.start)) < 0.025;
+    });
+    await zoomCropAtCenter(page, cropDialog);
     await cropDialog.getByRole('button', { name: 'Apply crop' }).click();
     await page.waitForFunction(() => window.qaSession.project().clips.find((c) => c.name === 'Ridgeline.mp4').crop.w < 1);
     await page.keyboard.press('Control+z');
@@ -82,15 +168,18 @@ const root = path.resolve(__dirname, '..');
     const frameRect = await frame.boundingBox();
     await frame.click({ button: 'right', position: { x: frameRect.width * 0.72, y: frameRect.height * 0.3 } });
     await cropMenu.click();
-    assert.equal(await cropDialog.locator('img').getAttribute('alt'), 'Ridgeline.mp4');
+    assert.equal(await cropDialog.locator('.crop-filename').textContent(), 'Ridgeline.mp4');
     await cropDialog.getByRole('button', { name: 'Cancel' }).click();
     await page.locator('#properties').getByRole('button', { name: 'Crop source' }).click();
     await cropDialog.getByRole('button', { name: 'Cancel' }).click();
+    await verifyWideCrop(page, profile, cropDialog, screenshot);
     await page.getByRole('button', { name: 'Stickers', exact: true }).click();
     await page.locator('.asset .variant').first().waitFor({ timeout: 60000 });
     const labels = await page.locator('.asset-name').allTextContents();
     assert.deepEqual(labels, [
       'Straight Arrow Thin', 'Straight Arrow Bold', 'Curved Arrow Thin', 'Curved Arrow Bold',
+      'Draw-On Straight Arrow Thin', 'Draw-On Straight Arrow Bold',
+      'Draw-On Curved Arrow Thin', 'Draw-On Curved Arrow Bold',
       'Clean Circle', 'Sketched Circle', 'Double Circle', 'Single Underline', 'Double Underline',
     ]);
     await page.waitForFunction(() => [...document.querySelectorAll('.asset-thumb.fx img')].every((img) => img.naturalWidth > 0));
@@ -100,7 +189,7 @@ const root = path.resolve(__dirname, '..');
       return img.bottom > thumb.bottom + 1 || img.right > thumb.right + 1;
     }).map((tile) => tile.parentElement.ariaLabel));
     assert.deepEqual(clipped, []);
-    const variant = page.locator('.asset .variant').first();
+    const variant = page.locator('.asset').filter({ hasText: 'Draw-On Curved Arrow Bold' }).locator('.variant');
     const ids = await variant.locator('option').evaluateAll((o) => o.map((v) => v.value));
     assert.equal(ids.length, 6);
     await variant.selectOption(ids[1]);
@@ -139,7 +228,7 @@ const root = path.resolve(__dirname, '..');
             document.querySelector('#timeline').getBoundingClientRect().height,
         ),
     );
-    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'portrait.png') });
+    await screenshot('portrait.png');
     await page.getByRole('button', { name: '9:16', exact: true }).click();
     await page.getByLabel('Aspect ratio and resolution').selectOption('1280x720');
     await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
@@ -173,6 +262,8 @@ const root = path.resolve(__dirname, '..');
     await page.locator('html[lang=pl][data-theme=light]').waitFor();
     assert.equal(JSON.parse(await fs.readFile(path.join(profile, 'settings.json'), 'utf8')).edgeDragMode, 'stretch');
     await page.getByRole('button', { name: 'Naklejki', exact: true }).click();
+    await page.getByLabel('Szukaj w bibliotece', { exact: true }).fill('rysowana');
+    await page.waitForFunction(() => document.querySelectorAll('.asset .variant').length === 4);
     await page.getByLabel('Szukaj w bibliotece', { exact: true }).fill('podkreślenie');
     await page.waitForFunction(() => document.querySelectorAll('.asset .variant').length === 2);
     const polishColors = await page.locator('.asset .variant').first().locator('option').allTextContents();
@@ -228,10 +319,10 @@ const root = path.resolve(__dirname, '..');
       });
       await page.waitForFunction(() => document.querySelector('#stage video')?.readyState >= 2);
       await page.locator('#notifications').evaluate((n) => n.replaceChildren());
-      await page.screenshot({ path: path.join(screenshots, 'editor-pl.png') });
+      await screenshot('editor-pl.png');
     }
     console.log(
-      'Verified Electron playback, split/undo, both crop menus and inspector, edge preference, 9 sticker families × 6 colors, Polish search, templates, both layouts, save and H.264 + audio export.',
+      'Verified Electron playback, split/undo, direct crop gestures on native video and full-resolution artwork, both crop menus and inspector, 13 sticker families × 6 colors, Polish search, templates, both layouts, save and H.264 + audio export.',
     );
   } catch (e) {
     console.error('Page:', (await page.locator('body').innerText()).slice(0, 3200));

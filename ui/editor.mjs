@@ -220,6 +220,7 @@ export function mountEditor({
   refresh();
   return {
     refresh,
+    pause,
     playPause,
     seek,
     getTime: () => now,

@@ -215,11 +215,7 @@
   cursor: ew-resize;
 }
 .ce-is-cropping {
-  border: 1px dashed #ffcd86;
-}
-.ce-is-cropping .ce-stage-grip {
-  border-color: #875b26;
-  background: #ffdc9b;
+  border-style: dashed;
 }
 .ce-scene-guide-x,
 .ce-scene-guide-y {

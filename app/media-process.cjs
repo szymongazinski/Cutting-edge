@@ -15,9 +15,9 @@ async function isFile(file) {
   }
 }
 
-function run(file, args, { cwd, env, onStdout, onStderr } = {}) {
+function run(file, args, { cwd, env, onStdout, onStderr, signal } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(file, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, args, { cwd, env, signal, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     function read(stream, callback, limit) {
       let tail = '',
         partial = '';

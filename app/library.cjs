@@ -14,11 +14,18 @@ const mediaExt = new Set(
 const ext = (file) => path.extname(file).slice(1).toLowerCase();
 const isMedia = (file) => mediaExt.has(ext(file));
 const idFor = (s) => createHash('sha256').update(s).digest('hex').slice(0, 24);
-function ff(exe, args, onData) {
+const maxFramePixels = 32 * 1024 * 1024;
+// Restrict the single-frame reader to self-contained imported media formats.
+const frameFormats = [
+  'mov', 'mp4', 'matroska', 'webm', 'avi', 'mpegts', 'mxf', 'asf', 'flv', 'mpeg', 'mpegvideo', 'ogg',
+  'gif', 'apng', 'png_pipe', 'jpeg_pipe', 'bmp_pipe', 'tiff_pipe', 'webp_pipe',
+].join(',');
+function ff(exe, args, onData, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(exe, ['-hide_banner', '-loglevel', 'error', '-nostdin', ...args], {
       windowsHide: true,
       stdio: ['ignore', onData ? 'pipe' : 'ignore', 'pipe'],
+      signal,
     });
     let err = '';
     child.stderr.on('data', (d) => {
@@ -49,12 +56,72 @@ class Library {
     this.ws = workspace;
     this.engine = engine;
     this.cacheDir = path.join(workspace.data, 'Previews');
-    this.allowed = new Set();
+    this.allowed = new Map();
     this.pending = new Map();
   }
   allow(asset) {
-    for (const p of [asset.path, asset.previewPath, asset.thumbnail])
-      if (p && isMedia(p) && path.isAbsolute(p)) this.allowed.add(path.resolve(p).toLowerCase());
+    const { kind, width, height, duration, videoCodec, hasAlpha } = asset;
+    for (const p of [asset.path, asset.previewPath, asset.thumbnail]) {
+      if (!p || !isMedia(p) || !path.isAbsolute(p)) continue;
+      const key = path.resolve(p).toLowerCase();
+      if (p === asset.path) this.allowed.set(key, { kind, width, height, duration, videoCodec, hasAlpha });
+      else if (!this.allowed.has(key)) this.allowed.set(key, null);
+    }
+  }
+  async cropFrame(file, time, signal) {
+    const source = this.allowed.get(path.resolve(file).toLowerCase());
+    if (!source || source.kind === 'audio' || !Number.isFinite(time) || time < 0)
+      throw Error('Invalid crop frame');
+    if (source.width > 16384 || source.height > 16384 || source.width * source.height > maxFramePixels)
+      throw Error('Source frame is too large');
+    signal?.throwIfAborted();
+    this.frameRequest?.abort();
+    const request = new AbortController();
+    this.frameRequest = request;
+    const stop = AbortSignal.any([request.signal, AbortSignal.timeout(15000), ...(signal ? [signal] : [])]);
+    try {
+      const { ffmpeg } = await this.engine.getBinaries();
+      // Older projects can omit WebM's alpha flag or codec. FFmpeg needs
+      // libvpx explicitly to retain the additional VP8/VP9 alpha plane.
+      if ((typeof source.hasAlpha !== 'boolean' || !source.videoCodec) &&
+          (/\.(webm|mkv)$/i.test(file) || ['vp8', 'vp9'].includes(source.videoCodec))) {
+        const metadata = await this.engine.probeAsset(file, { signal: stop, formats: frameFormats });
+        source.hasAlpha = metadata.hasAlpha;
+        source.videoCodec = metadata.videoCodec;
+      }
+      const end = source.duration > 0 ? Math.max(0, source.duration - 0.000001) : time;
+      const at = source.kind === 'image' ? 0 : Math.min(time, end);
+      const from = Math.max(0, at - 1);
+      const decoder = source.hasAlpha && ['vp8', 'vp9'].includes(source.videoCodec)
+        ? ['-c:v', source.videoCodec === 'vp9' ? 'libvpx-vp9' : 'libvpx'] : [];
+      // Keep the preceding keyframe. Rounding timestamps up picks the frame
+      // already visible at zero. One repeated last frame keeps EOF rounding
+      // from dropping that picture when seeking within the final sample.
+      const shift = (at - from).toFixed(6);
+      const filter = at ? ['-vf', [
+        'tpad=stop_mode=clone:stop=1', 'settb=AVTB', 'setpts=PTS-' + shift + '/TB',
+        'fps=1:start_time=0:round=up:eof_action=pass',
+      ].join(',')] : [];
+      let bytes = 0;
+      const chunks = [];
+      await ff(ffmpeg, [
+        '-protocol_whitelist', 'file', '-format_whitelist', frameFormats,
+        '-max_alloc', String(128 * 1024 * 1024), '-max_pixels', String(maxFramePixels),
+        '-threads', '2', '-filter_threads', '1', ...decoder,
+        ...(from ? ['-ss', from.toFixed(6), '-noaccurate_seek'] : []),
+        '-i', file, '-map', '0:V:0', ...filter, '-frames:v', '1', '-map_metadata', '-1',
+        '-c:v', 'png', '-threads:v', '1', '-compression_level', '2', '-pix_fmt', 'rgba', '-f', 'image2pipe', 'pipe:1',
+      ], (chunk) => {
+        bytes += chunk.length;
+        if (bytes > 64 * 1024 * 1024) request.abort();
+        else chunks.push(chunk);
+      }, stop);
+      stop.throwIfAborted();
+      if (!bytes) throw Error('Source frame unavailable');
+      return Buffer.concat(chunks, bytes);
+    } finally {
+      if (this.frameRequest === request) this.frameRequest = null;
+    }
   }
   async init() {
     await fs.mkdir(this.cacheDir, { recursive: true });
@@ -75,7 +142,7 @@ class Library {
     file = path.resolve(file);
     if (!isMedia(file)) throw Error('Unsupported media / Nieobsługiwane media: ' + path.basename(file));
     const stat = await fs.stat(file);
-    const revision = ext(file) === 'gif' ? 6 : 5;
+    const revision = ['gif', 'jpg', 'jpeg'].includes(ext(file)) ? 6 : 5;
     const key = idFor(file.toLowerCase() + '|' + stat.size + '|' + stat.mtimeMs + '|' + revision);
     let promise = this.pending.get(key);
     if (!promise) {

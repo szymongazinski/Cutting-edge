@@ -87,6 +87,8 @@ const families = {
   },
   'Straight Arrow Bold': {
     size: [480, 148], nudge: [23, 0],
+    shaftGuide: stroke([[23, 74], [329, 74]], 32),
+    headBrush: { x: 329, y: 74, radius: 108 },
     fill: roundedPolygon([
       [22, 60, 12], [329, 60, 4], [329, 19, 6], [435, 74, 7],
       [329, 129, 6], [329, 88, 4], [22, 88, 12],
@@ -103,6 +105,7 @@ const families = {
   },
   'Curved Arrow Bold': {
     size: [448, 244], nudge: [13, -18],
+    headBrush: { x: 350, y: 114, radius: 86 },
     strokes: [
       stroke(curve([25, 57], [62, 131, 100, 191, 177, 194], [256, 198, 315, 159, 366, 83]),
         (t) => 8 + 20 * Math.sin(t * Math.PI * 0.63) ** 0.8),
@@ -142,6 +145,9 @@ const families = {
     ],
   },
 };
+for (const [name, design] of Object.entries(families)) {
+  if (design.nudge) families['Draw-On ' + name] = { ...design, drawOn: true };
+}
 
 // GIF has one transparent index. A narrow, color-matched rim makes the inner
 // edge smooth without matting the silhouette to an assumed video background.
@@ -213,11 +219,17 @@ function paintFill(pixels, width, polygon) {
   }
 }
 
-function arrowFrames(design) {
+function arrowArtwork(design) {
   const [width, height] = design.size;
   const artwork = new Uint8Array(width * height);
   paintStrokes(artwork, design);
   if (design.fill) paintFill(artwork, width, design.fill);
+  return artwork;
+}
+
+function arrowFrames(design) {
+  const [width, height] = design.size;
+  const artwork = arrowArtwork(design);
   // Anticipation, a point towards the subject, then a small recoil and return.
   const keys = [[0, 0], [0.14, -0.16], [0.38, 1], [0.52, 0.76], [0.62, 0.82], [0.88, 0], [1, 0]];
   return Array.from({ length: 42 }, (_, frame) => {
@@ -232,6 +244,40 @@ function arrowFrames(design) {
       shifted.set(artwork.subarray(y * width + xStart, y * width + xEnd), (y + dy) * width + xStart + dx);
     return shifted;
   });
+}
+
+function drawOnArrowFrames(design) {
+  const artwork = arrowArtwork(design);
+  const shaft = { size: design.size, strokes: [design.shaftGuide ?? design.strokes[0]] };
+  const openHead = design.strokes?.[1];
+  const head = openHead && { size: design.size, strokes: [openHead] };
+  // Each open head has two wings, authored on either side of the middle vertex.
+  const tip = openHead && openHead.points[(openHead.points.length - 1) / 2].distance / openHead.length;
+  const ink = new Uint8Array(artwork.length);
+  const written = Array.from({ length: 32 }, (_, frame) => {
+    const progress = frame / 31;
+    const mask = new Uint8Array(artwork.length);
+    paintStrokes(mask, shaft, 0, mix(0.002, 1, ease(clamp(progress / 0.64))));
+    const headProgress = clamp((progress - 0.64) / 0.36);
+    if (headProgress > 0) {
+      if (head) {
+        const firstWing = ease(clamp(headProgress * 2));
+        const secondWing = ease(clamp(headProgress * 2 - 1));
+        paintStrokes(mask, head, tip * (1 - firstWing), mix(tip, 1, secondWing));
+      } else {
+        // On a solid head the nib widens from the shaft junction into the two wings and point.
+        const { x, y, radius } = design.headBrush;
+        const r = radius * ease(headProgress);
+        segment(mask, ...design.size, x, y, r, x, y, r);
+      }
+    }
+    // Reveal original palette pixels so the completed silhouette and its colored rim stay exact.
+    for (let i = 0; i < mask.length; i++) if (mask[i]) ink[i] = artwork[i];
+    return ink.slice();
+  });
+  const complete = written.at(-1);
+  const rewind = Array.from({ length: 9 }, (_, i) => written[Math.round(31 * (1 - ease((i + 1) / 9)))]);
+  return [...written, ...Array(15).fill(complete), ...rewind];
 }
 
 function drawnFrames(design) {
@@ -251,7 +297,7 @@ function drawnFrames(design) {
 }
 
 function timedFrames(design) {
-  const frames = design.nudge ? arrowFrames(design) : drawnFrames(design);
+  const frames = design.drawOn ? drawOnArrowFrames(design) : design.nudge ? arrowFrames(design) : drawnFrames(design);
   const timed = [];
   for (const pixels of frames) {
     const previous = timed.at(-1);
