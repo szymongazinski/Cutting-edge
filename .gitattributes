@@ -1,0 +1,10 @@
+* text=auto
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.css text eol=lf
+*.png binary
+*.gif binary
+*.mp4 binary
+*.webm binary
+*.wav binary
+*.ico binary

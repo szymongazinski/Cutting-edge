@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' cutting-media: data: blob:; media-src cutting-media: blob:; connect-src 'self' cutting-media:; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    />
+    <title>Cutting edge</title>
+    <link rel="stylesheet" href="shell.css" />
+    <link rel="stylesheet" href="editor.css" />
+  </head>
+  <body>
+    <div id="app" aria-busy="true">
+      <header id="top">
+        <div class="brand" aria-label="Cutting edge">
+          <span class="brandmark"><i></i><i></i><i></i></span><span>Cutting <em>edge</em></span>
+        </div>
+        <div id="project-menu"></div>
+        <div class="flex"></div>
+        <div id="top-actions"></div>
+        <div id="window-buttons"></div>
+      </header>
+      <div id="work">
+        <nav id="rail"></nav>
+        <aside id="library" class="panel"></aside>
+        <section id="monitor" class="panel">
+          <div id="monitor-head" class="panel-head"></div>
+          <div id="stage"></div>
+          <div id="transport"></div>
+        </section>
+        <aside id="inspector" class="panel">
+          <div id="inspector-tabs"></div>
+          <div id="properties"></div>
+        </aside>
+        <div id="splitter" role="separator" tabindex="0"></div>
+        <section id="sequence" class="panel">
+          <div id="timeline-head" class="panel-head"></div>
+          <div id="timeline"></div>
+        </section>
+      </div>
+      <footer id="status"></footer>
+    </div>
+    <div id="notifications" aria-live="polite"></div>
+    <div id="overlays"></div>
+    <script type="module" src="shell.mjs"></script>
+  </body>
+</html>

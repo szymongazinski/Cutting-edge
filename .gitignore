@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+tools/
+.work/
+test-results/
+*.log
+*.tmp
+*.cutproj
+!tests/fixtures/*.cutproj

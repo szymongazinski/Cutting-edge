@@ -1,0 +1,30 @@
+{
+  "name": "cutting-edge-editor",
+  "productName": "Cutting edge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A bilingual, local-first multitrack video editor for Windows",
+  "author": "szymongazinski",
+  "license": "MIT",
+  "main": "app/main.cjs",
+  "repository": "github:szymongazinski/Cutting-edge",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "test:ui": "node scripts/check-ui.cjs",
+    "prepare:media": "node scripts/prepare-media.cjs",
+    "pack": "node scripts/pack.cjs",
+    "dist": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1"
+  },
+  "dependencies": {
+    "gifenc": "1.0.3"
+  },
+  "devDependencies": {
+    "electron": "45.3.4",
+    "@electron/packager": "20.3.0",
+    "playwright-core": "1.65.1",
+    "lucide-static": "1.75.0",
+    "@fontsource/barlow-condensed": "^5.2.0",
+    "@fontsource/inter": "^5.2.0"
+  }
+}
